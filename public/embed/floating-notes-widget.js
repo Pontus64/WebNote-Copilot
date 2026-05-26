@@ -16,6 +16,22 @@
 
     * {
       box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button,
+    input,
+    textarea,
+    [role="button"] {
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:focus,
+    input:focus,
+    textarea:focus,
+    [role="button"]:focus {
+      outline: none;
     }
 
     .float-btn {
@@ -36,6 +52,12 @@
       font-weight: 600;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
       user-select: none;
+    }
+
+    .float-icon {
+      width: 30px;
+      height: 30px;
+      display: block;
     }
 
     .float-btn.left,
@@ -72,7 +94,7 @@
       position: fixed;
       top: 90px;
       width: min(520px, calc(100vw - 40px));
-      max-height: min(70vh, 720px);
+      height: 50vh;
       background: rgba(255, 255, 255, 0.96);
       border-radius: 20px;
       overflow: hidden;
@@ -97,7 +119,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #fff;
+      background: white;
     }
 
     .panel-title {
@@ -120,11 +142,14 @@
 
     .note-list {
       width: 100%;
-      max-height: calc(min(70vh, 720px) - 52px);
+      height: calc(50vh - 52px);
       display: flex;
       flex-direction: column;
-      overflow: auto;
-      background: #fff;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      background: #f5f5f5;
     }
 
     .state {
@@ -138,10 +163,12 @@
     .swipe-item {
       position: relative;
       width: 100%;
+      height: 72px;
       overflow: hidden;
       border-bottom: 1px solid #ececec;
-      background: white;
-      flex: 0 0 auto;
+      background: #f5f5f5;
+      flex: 0 0 72px;
+      touch-action: pan-y;
     }
 
     .actions {
@@ -174,10 +201,15 @@
       background: #ff3b30;
     }
 
+    .copy-btn:active,
+    .delete-btn:active {
+      filter: brightness(0.92);
+    }
+
     .note-item {
       position: relative;
       width: 100%;
-      min-height: 72px;
+      height: 72px;
       border: 0;
       background: white;
       padding: 14px 18px;
@@ -185,6 +217,32 @@
       transition: transform 0.25s ease;
       user-select: none;
       text-align: left;
+    }
+
+    .note-item.returning {
+      transition: transform 0.45s ease;
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      top: 28px;
+      transform: translate(-50%, -10px);
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(17, 17, 17, 0.88);
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 2147483647;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
     }
 
     .note-title {
@@ -202,38 +260,38 @@
       color: #888;
       line-height: 1.5;
       overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 1;
-      -webkit-box-orient: vertical;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .add-item {
-      height: 52px;
+      height: 72px;
       border: 0;
-      background: white;
+      background: #f5f5f5;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      flex: 0 0 auto;
+      flex: 0 0 72px;
     }
 
     .add-circle {
       width: 28px;
       height: 28px;
-      border-radius: 50%;
-      background: #f2f2f2;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
-      color: #777;
-      transition: background 0.2s ease, color 0.2s ease;
+      transition: opacity 0.2s ease;
+    }
+
+    .add-icon {
+      width: 28px;
+      height: 28px;
+      display: block;
     }
 
     .add-item:hover .add-circle {
-      background: #111;
-      color: white;
+      opacity: 0.78;
     }
 
     .detail-page {
@@ -336,11 +394,13 @@
         ...options
       };
       this.apiBase = this.options.apiBase.replace(/\/$/, "");
+      this.assetBase = new URL(this.apiBase || window.location.origin, window.location.href).origin;
       this.notes = [];
       this.currentIndex = null;
       this.opened = false;
       this.root = null;
       this.host = null;
+      this.toastTimer = null;
       this.abortController = new AbortController();
     }
 
@@ -394,8 +454,11 @@
 
       this.root.innerHTML = `
         <style>${STYLE}</style>
-        <button class="float-btn ${position}${floatClass}" type="button">${this.escapeHtml(this.options.title)}</button>
+        <button class="float-btn ${position}${floatClass}" type="button" aria-label="${this.escapeHtml(this.options.title)}">
+          <img class="float-icon" src="${this.assetBase}/edit_light.svg" alt="" aria-hidden="true">
+        </button>
         <div class="overlay"></div>
+        <div class="toast"></div>
         <section class="panel ${position}" aria-label="${this.escapeHtml(this.options.title)}">
           <header class="panel-header">
             <div class="panel-title">${this.escapeHtml(this.options.title)}</div>
@@ -420,6 +483,7 @@
       this.detailPage = this.root.querySelector(".detail-page");
       this.detailTitle = this.root.querySelector(".detail-title");
       this.detailContent = this.root.querySelector(".detail-content");
+      this.toast = this.root.querySelector(".toast");
 
       this.floatButton.addEventListener("click", () => this.toggle());
       this.overlay.addEventListener("click", () => this.close());
@@ -521,37 +585,78 @@
         item.append(actions, noteItem);
         this.noteList.appendChild(item);
 
-        noteItem.addEventListener("click", () => this.openDetail(index));
-        deleteButton.addEventListener("click", () => this.deleteNote(index));
-        copyButton.addEventListener("click", () => this.copyNote(index));
+        noteItem.addEventListener("click", () => {
+          if (this.isSwipedOpen(noteItem)) {
+            this.resetSwipeNow(noteItem);
+            return;
+          }
+
+          this.openDetail(index);
+        });
+        deleteButton.addEventListener("click", () => this.deleteNote(index, noteItem));
+        copyButton.addEventListener("click", () => this.copyNote(index, noteItem));
         this.addSwipe(noteItem);
       });
 
-      const add = document.createElement("button");
+      const add = document.createElement("div");
       add.className = "add-item";
-      add.type = "button";
-      add.innerHTML = '<div class="add-circle">+</div>';
-      add.addEventListener("click", () => this.createNote());
+      const addCircle = document.createElement("div");
+      addCircle.className = "add-circle";
+      const addIcon = document.createElement("img");
+      addIcon.className = "add-icon";
+      addIcon.src = `${this.assetBase}/roundaddlight.svg`;
+      addIcon.alt = "";
+      addIcon.setAttribute("aria-hidden", "true");
+      addCircle.appendChild(addIcon);
+      add.appendChild(addCircle);
+      addCircle.addEventListener("click", () => this.createNote());
       this.noteList.appendChild(add);
+    }
+
+    getTranslateX(noteItem) {
+      const match = noteItem.style.transform.match(/translateX\((-?\d+(?:\.\d+)?)px\)/);
+      return match ? Number(match[1]) : 0;
+    }
+
+    isSwipedOpen(noteItem) {
+      return this.getTranslateX(noteItem) < 0;
     }
 
     addSwipe(note) {
       let startX = 0;
+      let startY = 0;
       let currentX = 0;
+      let startTranslateX = 0;
+      let translateX = 0;
       let isSwiping = false;
+      let isVerticalScroll = false;
       const threshold = 15;
-
       note.addEventListener("touchstart", (event) => {
         startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
         currentX = startX;
+        startTranslateX = this.getTranslateX(note);
+        translateX = startTranslateX;
         isSwiping = false;
-      });
+        isVerticalScroll = false;
+      }, { passive: true });
 
       note.addEventListener("touchmove", (event) => {
         currentX = event.touches[0].clientX;
-        let diff = currentX - startX;
+        const diff = currentX - startX;
+        const diffY = event.touches[0].clientY - startY;
+        let nextTranslateX = startTranslateX + diff;
 
-        if (Math.abs(diff) > threshold) {
+        if (isVerticalScroll) {
+          return;
+        }
+
+        if (!isSwiping && Math.abs(diffY) > threshold && Math.abs(diffY) > Math.abs(diff)) {
+          isVerticalScroll = true;
+          return;
+        }
+
+        if (!isSwiping && Math.abs(diff) > threshold && Math.abs(diff) > Math.abs(diffY)) {
           isSwiping = true;
         }
 
@@ -559,22 +664,27 @@
           return;
         }
 
-        if (diff < 0) {
-          if (diff < -144) {
-            diff = -144;
-          }
+        event.preventDefault();
 
-          note.style.transform = `translateX(${diff}px)`;
+        if (nextTranslateX > 0) {
+          nextTranslateX = 0;
         }
-      });
+
+        if (nextTranslateX < -144) {
+          nextTranslateX = -144;
+        }
+
+        translateX = nextTranslateX;
+        note.style.transform = `translateX(${translateX}px)`;
+      }, { passive: false });
 
       note.addEventListener("touchend", () => {
         if (!isSwiping) {
           return;
         }
 
-        const moved = currentX - startX;
-        note.style.transform = moved < -60 ? "translateX(-144px)" : "translateX(0px)";
+        translateX = translateX < -60 ? -144 : 0;
+        note.style.transform = `translateX(${translateX}px)`;
       });
     }
 
@@ -629,13 +739,14 @@
       }
     }
 
-    async deleteNote(index) {
+    async deleteNote(index, noteItem) {
       const note = this.notes[index];
 
       try {
         await this.request(`/notes/${note.id}`, {
           method: "DELETE"
         });
+        this.showToast("✅ 删除成功");
         await this.fetchNotes();
       } catch (error) {
         window.alert("删除失败，请稍后重试");
@@ -643,22 +754,60 @@
       }
     }
 
-    async copyNote(index) {
-      const oldNote = this.notes[index];
+    async copyNote(index, noteItem) {
+      const note = this.notes[index];
 
       try {
-        await this.request("/notes", {
-          method: "POST",
-          body: JSON.stringify({
-            title: `${oldNote.title || "未命名"} 副本`,
-            content: oldNote.content || ""
-          })
-        });
-        await this.fetchNotes();
+        await this.writeClipboard(note.content || "");
+        this.showToast("✅ 复制成功");
+        await this.resetSwipeNow(noteItem);
       } catch (error) {
         window.alert("复制失败，请稍后重试");
         console.error(error);
       }
+    }
+
+    resetSwipeNow(noteItem) {
+      return new Promise((resolve) => {
+        noteItem.classList.add("returning");
+        noteItem.style.transform = "translateX(0px)";
+
+        window.setTimeout(() => {
+          noteItem.classList.remove("returning");
+          resolve();
+        }, 460);
+      });
+    }
+
+    showToast(message) {
+      this.toast.textContent = message;
+      this.toast.classList.add("show");
+
+      if (this.toastTimer) {
+        window.clearTimeout(this.toastTimer);
+      }
+
+      this.toastTimer = window.setTimeout(() => {
+        this.toast.classList.remove("show");
+      }, 1400);
+    }
+
+    async writeClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-1000px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
     }
 
     escapeHtml(value) {
