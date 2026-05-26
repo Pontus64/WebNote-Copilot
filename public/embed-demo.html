@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Floating Notes Embed Demo</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      background: #f6f7f9;
+      color: #202124;
+    }
+
+    main {
+      width: min(920px, calc(100vw - 40px));
+      margin: 60px auto;
+    }
+
+    section {
+      margin-bottom: 24px;
+      padding: 24px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 28px;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 0 0 16px;
+      color: #5f6368;
+      line-height: 1.7;
+    }
+
+    button,
+    a.action-link {
+      height: 40px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 8px;
+      background: #111;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .secondary {
+      background: #eef0f3;
+      color: #202124;
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: #eef0f3;
+      color: #111;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>悬浮记事本嵌入示例</h1>
+
+    <section>
+      <h2>方式一：保留默认悬浮按钮</h2>
+      <p>页面左上角的“笔记”浮球由脚本自动注入，点击即可打开记事本。</p>
+    </section>
+
+    <section>
+      <h2>方式二：绑定任意页面元素</h2>
+      <p>下面两个元素都可以唤起同一个记事本，一个来自自定义选择器，一个来自通用属性 <code>data-floating-notes-trigger</code>。</p>
+      <button id="openNotes" type="button">按钮打开笔记</button>
+      <a class="action-link secondary" href="#" data-floating-notes-trigger>链接打开笔记</a>
+    </section>
+  </main>
+
+  <script
+    src="/embed/floating-notes-widget.js"
+    data-trigger="#openNotes"
+    data-position="left"
+    data-title="笔记">
+  </script>
+</body>
+
+</html>

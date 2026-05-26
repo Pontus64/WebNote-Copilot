@@ -13,7 +13,12 @@
 	],
 	"assets": {
 		// The path to the directory containing the `index.html` file to be served at `/`
-		"directory": "./public"
+		"directory": "./public",
+		"binding": "ASSETS",
+		"run_worker_first": [
+			"/notes",
+			"/notes/*"
+		]
 	},
 	"observability": {
 		"enabled": true
@@ -23,7 +28,8 @@
 		{
 			"binding": "wranglerdemo",
 			"database_name": "wranglerdemo",
-			"database_id": "80e3b35f-0fd8-457e-add2-530831fa5ca9"
+			"database_id": "80e3b35f-0fd8-457e-add2-530831fa5ca9",
+			"migrations_dir": "migrations"
 		}
 	]
 	/**
