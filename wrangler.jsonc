@@ -18,7 +18,14 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "wranglerdemo",
+			"database_name": "wranglerdemo",
+			"database_id": "80e3b35f-0fd8-457e-add2-530831fa5ca9"
+		}
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
