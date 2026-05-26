@@ -153,6 +153,9 @@
 
         #noteList {
 
+            position: absolute;
+            inset: 0;
+
             width: 100%;
             height: 50vh;
 
@@ -164,6 +167,11 @@
             overflow-x: hidden;
             overscroll-behavior: contain;
             touch-action: pan-y;
+            transform: translateX(0);
+            transition:
+                transform 0.3s ease,
+                opacity 0.3s ease;
+            will-change: transform, opacity;
         }
 
         /* swipe */
@@ -252,7 +260,7 @@
         }
 
         .note-item.returning {
-            transition: transform 0.45s ease;
+            transition: transform 0.3s ease;
         }
 
         .toast {
@@ -352,23 +360,31 @@
 
         .detail-page {
 
-            position: fixed;
+            position: absolute;
             inset: 0;
-
+            height: 100%;
             background: white;
-
-            z-index: 2000;
-
-            transform: translateX(100%);
-
-            transition: 0.3s;
 
             display: flex;
             flex-direction: column;
+            pointer-events: none;
+            transform: translateX(100%);
+            transition:
+                transform 0.3s ease,
+                opacity 0.3s ease;
+            will-change: transform, opacity;
         }
 
-        .detail-page.show {
+        .panel.detail-open #noteList {
 
+            pointer-events: none;
+            transform: translateX(-28%);
+            opacity: 0.82;
+        }
+
+        .panel.detail-open .detail-page {
+
+            pointer-events: auto;
             transform: translateX(0);
         }
 
@@ -481,25 +497,25 @@
 
         <div id="noteList"></div>
 
-    </div>
+        <div class="detail-page" id="detailPage">
 
-    <div class="detail-page" id="detailPage">
+            <div class="detail-header">
 
-        <div class="detail-header">
+                <div class="back-btn" onclick="closeDetail()">
+                    ←
+                </div>
 
-            <div class="back-btn" onclick="closeDetail()">
-                ←
+                <input class="detail-title" id="detailTitle" placeholder="输入标题" />
+
+                <div class="save-btn" onclick="saveNote()">
+                    保存
+                </div>
+
             </div>
 
-            <input class="detail-title" id="detailTitle" placeholder="输入标题" />
-
-            <div class="save-btn" onclick="saveNote()">
-                保存
-            </div>
+            <textarea class="detail-content" id="detailContent" placeholder="输入内容..."></textarea>
 
         </div>
-
-        <textarea class="detail-content" id="detailContent" placeholder="输入内容..."></textarea>
 
     </div>
 
@@ -559,6 +575,7 @@
                 } else {
 
                     panel.classList.remove("show");
+                    closeDetail();
                     overlay.classList.remove("show");
                 }
             });
@@ -568,6 +585,7 @@
             opened = false;
 
             panel.classList.remove("show");
+            closeDetail();
             overlay.classList.remove("show");
         });
 
@@ -841,6 +859,19 @@
 
         /* open */
 
+        function showDetailPage() {
+
+            detailPage.classList.add("show");
+
+            requestAnimationFrame(() => {
+
+                requestAnimationFrame(() => {
+
+                    panel.classList.add("detail-open");
+                });
+            });
+        }
+
         function openDetail(index) {
 
             currentIndex = index;
@@ -851,7 +882,7 @@
             detailContent.value =
                 notes[index].content;
 
-            detailPage.classList.add("show");
+            showDetailPage();
         }
 
         /* create */
@@ -863,7 +894,7 @@
             detailTitle.value = "";
             detailContent.value = "";
 
-            detailPage.classList.add("show");
+            showDetailPage();
         }
 
         /* close */
@@ -871,6 +902,7 @@
         function closeDetail() {
 
             detailPage.classList.remove("show");
+            panel.classList.remove("detail-open");
         }
 
         /* save */
@@ -977,7 +1009,7 @@
 
                     noteItem.classList.remove("returning");
                     resolve();
-                }, 460);
+                }, 300);
             });
         }
 

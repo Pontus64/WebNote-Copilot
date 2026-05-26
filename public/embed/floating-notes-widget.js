@@ -112,6 +112,17 @@
       pointer-events: auto;
     }
 
+    .panel.detail-open .note-list {
+      pointer-events: none;
+      transform: translateX(-28%);
+      opacity: 0.82;
+    }
+
+    .panel.detail-open .detail-page {
+      pointer-events: auto;
+      transform: translateX(0);
+    }
+
     .panel-header {
       height: 52px;
       padding: 0 16px;
@@ -141,6 +152,11 @@
     }
 
     .note-list {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 52px;
+      bottom: 0;
       width: 100%;
       height: calc(50vh - 52px);
       display: flex;
@@ -150,6 +166,9 @@
       overscroll-behavior: contain;
       touch-action: pan-y;
       background: #f5f5f5;
+      transform: translateX(0);
+      transition: transform 0.3s ease, opacity 0.3s ease;
+      will-change: transform, opacity;
     }
 
     .state {
@@ -220,7 +239,7 @@
     }
 
     .note-item.returning {
-      transition: transform 0.45s ease;
+      transition: transform 0.3s ease;
     }
 
     .toast {
@@ -295,18 +314,19 @@
     }
 
     .detail-page {
-      position: fixed;
-      inset: 0;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 52px;
+      bottom: 0;
+      height: calc(50vh - 52px);
       background: white;
-      z-index: 2147483646;
-      transform: translateX(100%);
-      transition: transform 0.3s ease;
       display: flex;
       flex-direction: column;
-    }
-
-    .detail-page.show {
-      transform: translateX(0);
+      pointer-events: none;
+      transform: translateX(100%);
+      transition: transform 0.3s ease, opacity 0.3s ease;
+      will-change: transform, opacity;
     }
 
     .detail-header {
@@ -437,6 +457,7 @@
     close() {
       this.opened = false;
       this.panel.classList.remove("show");
+      this.closeDetail();
       this.overlay.classList.remove("show");
     }
 
@@ -465,14 +486,14 @@
             <button class="close-btn" type="button" aria-label="关闭">×</button>
           </header>
           <div class="note-list"></div>
-        </section>
-        <section class="detail-page" aria-label="编辑笔记">
-          <header class="detail-header">
-            <button class="back-btn" type="button" aria-label="返回">←</button>
-            <input class="detail-title" placeholder="输入标题" />
-            <button class="save-btn" type="button">保存</button>
-          </header>
-          <textarea class="detail-content" placeholder="输入内容..."></textarea>
+          <section class="detail-page" aria-label="编辑笔记">
+            <header class="detail-header">
+              <button class="back-btn" type="button" aria-label="返回">←</button>
+              <input class="detail-title" placeholder="输入标题" />
+              <button class="save-btn" type="button">保存</button>
+            </header>
+            <textarea class="detail-content" placeholder="输入内容..."></textarea>
+          </section>
         </section>
       `;
 
@@ -688,24 +709,33 @@
       });
     }
 
+    showDetailPage() {
+      this.detailPage.classList.add("show");
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          this.panel.classList.add("detail-open");
+        });
+      });
+    }
+
     openDetail(index) {
       this.currentIndex = index;
       this.detailTitle.value = this.notes[index].title || "";
       this.detailContent.value = this.notes[index].content || "";
-      this.detailPage.classList.add("show");
-      this.detailTitle.focus();
+      this.showDetailPage();
     }
 
     createNote() {
       this.currentIndex = null;
       this.detailTitle.value = "";
       this.detailContent.value = "";
-      this.detailPage.classList.add("show");
-      this.detailTitle.focus();
+      this.showDetailPage();
     }
 
     closeDetail() {
       this.detailPage.classList.remove("show");
+      this.panel.classList.remove("detail-open");
     }
 
     async saveNote() {
@@ -775,7 +805,7 @@
         window.setTimeout(() => {
           noteItem.classList.remove("returning");
           resolve();
-        }, 460);
+        }, 300);
       });
     }
 
