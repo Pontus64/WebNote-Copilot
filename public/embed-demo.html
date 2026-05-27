@@ -69,6 +69,24 @@
       background: #eef0f3;
       color: #111;
     }
+
+    pre {
+      margin: 0 0 16px;
+      padding: 14px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: #111;
+      color: #f8fafc;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+    }
   </style>
 </head>
 
@@ -87,13 +105,47 @@
       <button id="openNotes" type="button">按钮打开笔记</button>
       <a class="action-link secondary" href="#" data-floating-notes-trigger>链接打开笔记</a>
     </section>
+
+    <section>
+      <h2>方式三：注入任意网页</h2>
+      <p>把下面代码放进目标网页控制台，或者改成浏览器书签脚本。执行后会在当前网页追加记事本悬浮球。</p>
+      <pre><code id="consoleSnippet"></code></pre>
+      <p>如果能改目标网页源码，也可以直接放这段脚本标签。</p>
+      <pre><code id="scriptTagSnippet"></code></pre>
+    </section>
+
+    <section>
+      <h2>方式四：油猴脚本</h2>
+      <p>安装后会在所有普通 HTTP/HTTPS 页面自动显示悬浮记事本。</p>
+      <a class="action-link" href="/floating-notes.user.js">安装油猴脚本</a>
+    </section>
   </main>
 
   <script
-    src="/embed/floating-notes-widget.js"
+    src="/embed/inject-floating-notes.js"
     data-trigger="#openNotes"
     data-position="left"
     data-title="笔记">
+  </script>
+  <script>
+    const serviceOrigin = window.location.origin;
+    const consoleSnippet = `(() => {
+  const url = "${serviceOrigin}/embed/inject-floating-notes.js";
+  const script = document.createElement("script");
+  const trustedUrl = window.trustedTypes
+    ? window.trustedTypes
+        .createPolicy("floating-notes-loader", { createScriptURL: (value) => value })
+        .createScriptURL(url)
+    : url;
+  script.src = trustedUrl;
+  script.dataset.position = "left";
+  script.dataset.title = "笔记";
+  document.documentElement.appendChild(script);
+})();`;
+    const scriptTagSnippet = `<script src="${serviceOrigin}/embed/inject-floating-notes.js" data-position="left" data-title="笔记"><\/script>`;
+
+    document.getElementById("consoleSnippet").textContent = consoleSnippet;
+    document.getElementById("scriptTagSnippet").textContent = scriptTagSnippet;
   </script>
 </body>
 

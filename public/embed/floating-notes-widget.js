@@ -7,6 +7,32 @@
     title: "笔记"
   };
 
+  function createTrustedTypesPolicy() {
+    if (!window.trustedTypes || typeof window.trustedTypes.createPolicy !== "function") {
+      return null;
+    }
+
+    try {
+      return window.trustedTypes.createPolicy("floating-notes-widget", {
+        createHTML(value) {
+          return value;
+        }
+      });
+    } catch (error) {
+      console.error(
+        "Floating notes widget could not create a Trusted Types policy. This page CSP blocks dynamic widget HTML.",
+        error
+      );
+      return null;
+    }
+  }
+
+  const TRUSTED_TYPES_POLICY = createTrustedTypesPolicy();
+
+  function trustedHtml(html) {
+    return TRUSTED_TYPES_POLICY ? TRUSTED_TYPES_POLICY.createHTML(html) : html;
+  }
+
   const STYLE = `
     :host {
       all: initial;
@@ -473,7 +499,7 @@
       const position = this.options.position === "right" ? "right" : "left";
       const floatClass = this.options.floatButton ? "" : " hidden";
 
-      this.root.innerHTML = `
+      this.root.innerHTML = trustedHtml(`
         <style>${STYLE}</style>
         <button class="float-btn ${position}${floatClass}" type="button" aria-label="${this.escapeHtml(this.options.title)}">
           <img class="float-icon" src="${this.assetBase}/edit_light.svg" alt="" aria-hidden="true">
@@ -495,7 +521,7 @@
             <textarea class="detail-content" placeholder="输入内容..."></textarea>
           </section>
         </section>
-      `;
+      `);
 
       this.floatButton = this.root.querySelector(".float-btn");
       this.overlay = this.root.querySelector(".overlay");
@@ -558,7 +584,7 @@
     }
 
     renderState(message) {
-      this.noteList.innerHTML = "";
+      this.noteList.replaceChildren();
       const state = document.createElement("div");
       state.className = "state";
       state.textContent = message;
@@ -566,7 +592,7 @@
     }
 
     renderNotes() {
-      this.noteList.innerHTML = "";
+      this.noteList.replaceChildren();
 
       if (!this.notes.length) {
         this.renderState("暂无笔记");

@@ -83,6 +83,25 @@ describe("floating notes worker", () => {
 		expect(response.status).toBe(200);
 		await expect(response.json()).resolves.toEqual(expect.any(Array));
 	});
+
+	it("serves the floating notes injector as a static asset", async () => {
+		const response = await SELF.fetch("http://example.com/embed/inject-floating-notes.js");
+		const source = await response.text();
+
+		expect(response.status).toBe(200);
+		expect(source).toContain("FloatingNotesInjectConfig");
+		expect(source).toContain("/embed/floating-notes-widget.js");
+	});
+
+	it("serves the Tampermonkey userscript as a static asset", async () => {
+		const response = await SELF.fetch("http://example.com/floating-notes.user.js");
+		const source = await response.text();
+
+		expect(response.status).toBe(200);
+		expect(source).toContain("// ==UserScript==");
+		expect(source).toContain("@match        https://*/*");
+		expect(source).toContain("https://notes.edmund.xin/embed/floating-notes-widget.js");
+	});
 });
 
 async function seedTestDatabase(): Promise<void> {
