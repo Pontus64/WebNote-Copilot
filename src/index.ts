@@ -31,17 +31,22 @@ export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
 
+		// 这就是线上请求的总入口。浏览器访问任何路径，都会先到这里判断：
+		// /notes 走后端 API，其它路径交给 public 目录里的静态资源。
+
 		// Browsers send OPTIONS before some cross-origin JSON requests.
 		if (request.method === "OPTIONS") {
 			return new Response(null, { status: 204, headers: CORS_HEADERS });
 		}
 
 		// API requests go to this Worker code and read/write D1.
+		// 嵌入脚本里的 fetch(`${apiBase}/notes`) 最终会命中这里。
 		if (url.pathname === "/notes" || url.pathname.startsWith("/notes/")) {
 			return handleNotesRequest(request, env, url);
 		}
 
 		// Everything else is static frontend: public/index.html, embed demo, widget JS.
+		// 例如 /、/embed/floating-notes-widget.js、/floating-notes.user.js 都从 public 目录返回。
 		if (env.ASSETS) {
 			return env.ASSETS.fetch(request);
 		}
@@ -59,22 +64,27 @@ async function handleNotesRequest(
 		// /notes has no id; /notes/<id> extracts the id after the prefix.
 		const noteId = decodeURIComponent(url.pathname.replace(/^\/notes\/?/, ""));
 
+		// GET /notes：列表页打开时拉取所有笔记。
 		if (url.pathname === "/notes" && request.method === "GET") {
 			return json(await listNotes(env.wranglerdemo));
 		}
 
+		// POST /notes：编辑页保存一条新笔记。
 		if (url.pathname === "/notes" && request.method === "POST") {
 			return createNote(request, env.wranglerdemo);
 		}
 
+		// GET /notes/:id：按 id 查询单条笔记，目前主要给 API 完整性使用。
 		if (noteId && request.method === "GET") {
 			return getNote(env.wranglerdemo, noteId);
 		}
 
+		// PUT /notes/:id：编辑已有笔记后保存。
 		if (noteId && request.method === "PUT") {
 			return updateNote(request, env.wranglerdemo, noteId);
 		}
 
+		// DELETE /notes/:id：列表里删除笔记。
 		if (noteId && request.method === "DELETE") {
 			return deleteNote(env.wranglerdemo, noteId);
 		}

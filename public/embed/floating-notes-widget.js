@@ -445,7 +445,10 @@
         ...DEFAULT_OPTIONS,
         ...options
       };
+      // apiBase 指向笔记服务域名，例如 https://notes.edmund.xin。
+      // 所有读写都会走 `${apiBase}/notes`。
       this.apiBase = this.options.apiBase.replace(/\/$/, "");
+      // assetBase 用来加载图标资源，避免嵌入到别的网站后误从宿主网站找 SVG。
       this.assetBase = new URL(this.apiBase || window.location.origin, window.location.href).origin;
       this.notes = [];
       this.currentIndex = null;
@@ -461,9 +464,12 @@
         return this;
       }
 
+      // 使用自定义元素名 + Shadow DOM，把样式和 DOM 封装起来。
+      // 这样宿主网页自己的 CSS 不容易污染笔记本，笔记本样式也不容易影响宿主网页。
       this.host = document.createElement("floating-notes-widget");
       this.root = this.host.attachShadow({ mode: "open" });
       document.body.appendChild(this.host);
+      // 先渲染外壳，再绑定宿主页面触发器，最后拉取后端笔记数据。
       this.renderShell();
       this.bindTriggers();
       this.fetchNotes();
@@ -505,6 +511,8 @@
       const position = this.options.position === "right" ? "right" : "left";
       const floatClass = this.options.floatButton ? "" : " hidden";
 
+      // 这里生成的是嵌入版的完整 UI：悬浮图标、遮罩、toast、列表页、编辑页。
+      // 注意这不是打开 index.html，而是直接把这一套 DOM 插到当前网页里。
       this.root.innerHTML = trustedHtml(`
         <style>${STYLE}</style>
         <button class="float-btn ${position}${floatClass}" type="button" aria-label="${this.escapeHtml(this.options.title)}">
@@ -538,6 +546,7 @@
       this.detailContent = this.root.querySelector(".detail-content");
       this.toast = this.root.querySelector(".toast");
 
+      // 这些事件只绑定在 Shadow DOM 内部，控制当前 widget 的打开、关闭、返回和保存。
       this.floatButton.addEventListener("click", () => this.toggle());
       this.overlay.addEventListener("click", () => this.close());
       this.root.querySelector(".close-btn").addEventListener("click", () => this.close());
@@ -546,6 +555,9 @@
     }
 
     bindTriggers() {
+      // 除了默认悬浮按钮，宿主网页也可以提供自己的入口：
+      // 1. 初始化时传 trigger: "#openNotes"
+      // 2. 给任意元素加 data-floating-notes-trigger
       const signal = this.abortController.signal;
       const triggerSelectors = [
         this.options.trigger,
@@ -563,6 +575,8 @@
     }
 
     async request(path, options) {
+      // 所有 API 请求都从这里统一发出。
+      // 例如 this.request("/notes") 实际请求 https://notes.edmund.xin/notes。
       const response = await fetch(`${this.apiBase}${path}`, {
         ...options,
         headers: {
@@ -581,6 +595,7 @@
     async fetchNotes() {
       try {
         this.renderState("加载中...");
+        // GET /notes：从 Worker + D1 拉取笔记列表。
         this.notes = await this.request("/notes");
         this.renderNotes();
       } catch (error) {
@@ -605,6 +620,7 @@
       }
 
       this.notes.forEach((note, index) => {
+        // 列表项用真实 DOM API 创建，而不是拼字符串，避免用户输入内容破坏 HTML。
         const item = document.createElement("div");
         item.className = "swipe-item";
 
@@ -781,11 +797,13 @@
 
       try {
         if (this.currentIndex === null) {
+          // 新建笔记：POST /notes。
           await this.request("/notes", {
             method: "POST",
             body: JSON.stringify({ title, content })
           });
         } else {
+          // 修改已有笔记：PUT /notes/:id。
           const note = this.notes[this.currentIndex];
           await this.request(`/notes/${note.id}`, {
             method: "PUT",
@@ -805,6 +823,7 @@
       const note = this.notes[index];
 
       try {
+        // 删除笔记：DELETE /notes/:id。
         await this.request(`/notes/${note.id}`, {
           method: "DELETE"
         });
@@ -888,6 +907,9 @@
       return {};
     }
 
+    // 当 widget 被 script 标签直接加载时，可以从 data-* 读取初始化配置。
+    // 当它被 inject-floating-notes.js 加载时，inject 会设置 data-auto-init="false"，
+    // 避免 widget 自己先初始化一次。
     return {
       apiBase: script.dataset.apiBase || new URL(script.src).origin,
       trigger: script.dataset.trigger || "",
@@ -913,11 +935,14 @@
   const scriptOptions = resolveScriptOptions();
 
   window.FloatingNotes = {
+    // 对外暴露 init，给 inject 脚本和油猴脚本调用。
     init,
     Widget: FloatingNotesWidget
   };
 
   if (scriptOptions.autoInit) {
+    // 如果直接用 <script src="/embed/floating-notes-widget.js"> 加载，
+    // 默认会自动初始化；inject 和油猴则会自己控制初始化。
     window.FloatingNotes.instance = init(scriptOptions);
   }
 })();

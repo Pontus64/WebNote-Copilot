@@ -18,6 +18,8 @@
 (function () {
   "use strict";
 
+  // 油猴脚本运行在任意被 @match 命中的网页上。
+  // @require 会先把 floating-notes-widget.js 下载并执行，所以这里可以直接用 window.FloatingNotes。
   const API_BASE = "https://notes.edmund.xin";
 
   function initFloatingNotes() {
@@ -30,6 +32,8 @@
       return;
     }
 
+    // 油猴入口不需要 inject-floating-notes.js，因为 @require 已经帮它加载了 widget。
+    // 这里直接初始化 widget，把悬浮按钮和面板插入当前网页。
     window.FloatingNotes.instance = window.FloatingNotes.init({
       apiBase: API_BASE,
       floatButton: true,
