@@ -63,12 +63,12 @@
     .float-btn {
       position: fixed;
       top: 20px;
-      width: 56px;
-      height: 56px;
+      width: 36px;
+      height: 36px;
       border: 0;
-      border-radius: 50%;
-      background: #111;
-      color: #fff;
+      border-radius: 0;
+      background: transparent;
+      color: #666;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -76,14 +76,20 @@
       z-index: 2147483645;
       font-size: 14px;
       font-weight: 600;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      box-shadow: none;
+      padding: 0;
       user-select: none;
+    }
+
+    .float-btn:hover .float-icon {
+      opacity: 0.78;
     }
 
     .float-icon {
       width: 30px;
       height: 30px;
       display: block;
+      transition: opacity 0.2s ease;
     }
 
     .float-btn.left,

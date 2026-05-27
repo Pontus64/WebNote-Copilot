@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         Floating Notes
 // @namespace    https://notes.edmund.xin/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Add the floating notes widget to every normal web page.
 // @author       Edmund
 // @match        http://*/*
 // @match        https://*/*
 // @exclude      https://notes.edmund.xin/*
-// @require      https://notes.edmund.xin/embed/floating-notes-widget.js
+// @updateURL    https://notes.edmund.xin/floating-notes.user.js
+// @downloadURL  https://notes.edmund.xin/floating-notes.user.js
+// @require      https://notes.edmund.xin/embed/floating-notes-widget.js?v=1.0.1
 // @connect      notes.edmund.xin
 // @run-at       document-idle
 // @grant        none
