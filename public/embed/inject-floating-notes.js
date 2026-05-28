@@ -148,9 +148,9 @@
       apiBase,
       // trigger 可以绑定宿主网页上的某个按钮，例如 data-trigger="#openNotes"。
       trigger: readString(config.trigger, ""),
-      // floatButton 控制是否显示默认左上角悬浮图标。
+      // floatButton 控制是否显示默认右下角悬浮图标。
       floatButton: readBoolean(config.floatButton, true),
-      position: readString(config.position, "left") === "right" ? "right" : "left",
+      position: readString(config.position, "right") === "left" ? "left" : "right",
       title: readString(config.title, DEFAULT_TITLE)
     };
     const shouldOpen = readBoolean(config.open ?? config.autoOpen, false);

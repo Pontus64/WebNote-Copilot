@@ -96,7 +96,7 @@
 
     <section>
       <h2>方式一：保留默认悬浮按钮</h2>
-      <p>页面左上角的“笔记”浮球由脚本自动注入，点击即可打开记事本。</p>
+      <p>页面右下角的“笔记”浮球由脚本自动注入，点击即可打开记事本。</p>
     </section>
 
     <section>
@@ -124,7 +124,7 @@
   <script
     src="/embed/inject-floating-notes.js"
     data-trigger="#openNotes"
-    data-position="left"
+    data-position="right"
     data-title="笔记">
   </script>
   <script>
@@ -138,11 +138,11 @@
         .createScriptURL(url)
     : url;
   script.src = trustedUrl;
-  script.dataset.position = "left";
+  script.dataset.position = "right";
   script.dataset.title = "笔记";
   document.documentElement.appendChild(script);
 })();`;
-    const scriptTagSnippet = `<script src="${serviceOrigin}/embed/inject-floating-notes.js" data-position="left" data-title="笔记"><\/script>`;
+    const scriptTagSnippet = `<script src="${serviceOrigin}/embed/inject-floating-notes.js" data-position="right" data-title="笔记"><\/script>`;
 
     document.getElementById("consoleSnippet").textContent = consoleSnippet;
     document.getElementById("scriptTagSnippet").textContent = scriptTagSnippet;

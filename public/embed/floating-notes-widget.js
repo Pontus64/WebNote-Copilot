@@ -3,7 +3,7 @@
     apiBase: "",
     trigger: "",
     floatButton: true,
-    position: "left",
+    position: "right",
     title: "笔记"
   };
 
@@ -62,7 +62,7 @@
 
     .float-btn {
       position: fixed;
-      top: 20px;
+      bottom: 20px;
       width: 36px;
       height: 36px;
       border: 0;
@@ -124,7 +124,7 @@
 
     .panel {
       position: fixed;
-      top: 90px;
+      bottom: 90px;
       width: min(520px, calc(100vw - 40px));
       height: 50vh;
       background: rgba(255, 255, 255, 0.96);
@@ -914,7 +914,7 @@
       apiBase: script.dataset.apiBase || new URL(script.src).origin,
       trigger: script.dataset.trigger || "",
       floatButton: script.dataset.floatButton !== "false",
-      position: script.dataset.position || "left",
+      position: script.dataset.position || "right",
       title: script.dataset.title || "笔记",
       autoInit: script.dataset.autoInit !== "false"
     };

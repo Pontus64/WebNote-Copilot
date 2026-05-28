@@ -37,7 +37,7 @@
     window.FloatingNotes.instance = window.FloatingNotes.init({
       apiBase: API_BASE,
       floatButton: true,
-      position: "left",
+      position: "right",
       title: "笔记"
     });
   }
