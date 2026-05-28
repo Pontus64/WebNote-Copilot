@@ -119,7 +119,7 @@
   function injectFloatingNotes(overrides) {
     // 配置来源按优先级合并：
     // 1. window.FloatingNotesInjectConfig 全局配置
-    // 2. script 标签上的 data-*，例如 data-position="right"
+    // 2. script 标签上的 data-*，例如 data-title="笔记"
     // 3. JS 主动调用 injectFloatingNotes({...}) 传进来的 overrides
     const currentScript = document.currentScript;
     const globalConfig = isPlainObject(window[GLOBAL_CONFIG_NAME])
@@ -148,9 +148,8 @@
       apiBase,
       // trigger 可以绑定宿主网页上的某个按钮，例如 data-trigger="#openNotes"。
       trigger: readString(config.trigger, ""),
-      // floatButton 控制是否显示默认右下角悬浮图标。
+      // floatButton 控制是否显示默认右下角悬浮按钮。
       floatButton: readBoolean(config.floatButton, true),
-      position: readString(config.position, "right") === "left" ? "left" : "right",
       title: readString(config.title, DEFAULT_TITLE)
     };
     const shouldOpen = readBoolean(config.open ?? config.autoOpen, false);
