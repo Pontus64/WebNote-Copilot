@@ -1,6 +1,7 @@
 (function () {
   "use strict";
 
+  const WIDGET_VERSION = "1.0.4";
   const DEFAULT_OPTIONS = {
     apiBase: "",
     trigger: "",
@@ -38,6 +39,7 @@
         ...DEFAULT_OPTIONS,
         ...options
       };
+      this.version = WIDGET_VERSION;
       this.apiBase = String(this.options.apiBase || window.location.origin).replace(/\/$/, "");
       this.notes = [];
       this.currentIndex = null;
@@ -64,6 +66,7 @@
       const mountParent = document.body || document.documentElement;
       this.host = document.createElement("floating-notes-widget");
       this.host.setAttribute("data-theme", "dark");
+      this.host.setAttribute("data-version", WIDGET_VERSION);
       mountParent.appendChild(this.host);
       this.root = this.host.attachShadow({ mode: "open" });
       this.root.innerHTML = trustedHtml(this.shellHtml());
@@ -1091,6 +1094,7 @@
 
   const scriptOptions = resolveScriptOptions();
   window.FloatingNotes = {
+    version: WIDGET_VERSION,
     init,
     Widget: FloatingNotesWidget
   };

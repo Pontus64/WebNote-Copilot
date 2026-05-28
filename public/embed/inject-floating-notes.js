@@ -4,6 +4,7 @@
   // 它本身不画笔记 UI，只负责读取配置、加载真正的 widget 脚本，然后初始化 widget。
   const GLOBAL_CONFIG_NAME = "FloatingNotesInjectConfig";
   const WIDGET_SCRIPT_ID = "floating-notes-widget-script";
+  const WIDGET_VERSION = "1.0.4";
   const DEFAULT_TITLE = "笔记";
 
   function isPlainObject(value) {
@@ -46,6 +47,23 @@
     }
 
     return String(value);
+  }
+
+  function versionedWidgetSrc(url) {
+    try {
+      const parsedUrl = new URL(url, window.location.href);
+      if (!parsedUrl.searchParams.has("v")) {
+        parsedUrl.searchParams.set("v", WIDGET_VERSION);
+      }
+      return parsedUrl.href;
+    } catch {
+      if (String(url).includes("v=")) {
+        return String(url);
+      }
+      return String(url).includes("?")
+        ? `${url}&v=${encodeURIComponent(WIDGET_VERSION)}`
+        : `${url}?v=${encodeURIComponent(WIDGET_VERSION)}`;
+    }
   }
 
   function createTrustedScriptUrl(url) {
@@ -97,9 +115,17 @@
     document.addEventListener("DOMContentLoaded", () => appendScript(script), { once: true });
   }
 
-  function mountWidget(options, shouldOpen) {
-    // floating-notes-widget.js 加载完成后，会在 window 上暴露 FloatingNotes.init。
-    // 这里调用 init，才真正把悬浮按钮和面板挂到当前网页里。
+  function openWidgetWhenReady(shouldOpen) {
+    if (!shouldOpen || !window.FloatingNotes || !window.FloatingNotes.instance) {
+      return;
+    }
+
+    if (typeof window.FloatingNotes.instance.open === "function") {
+      window.FloatingNotes.instance.open();
+    }
+  }
+
+  function mountExistingWidget(options, shouldOpen) {
     if (!window.FloatingNotes || typeof window.FloatingNotes.init !== "function") {
       console.error("Floating notes widget did not load.");
       return null;
@@ -109,11 +135,38 @@
       window.FloatingNotes.instance = window.FloatingNotes.init(options);
     }
 
-    if (shouldOpen && typeof window.FloatingNotes.instance.open === "function") {
-      window.FloatingNotes.instance.open();
-    }
+    openWidgetWhenReady(shouldOpen);
 
     return window.FloatingNotes.instance;
+  }
+
+  function isCurrentWidgetLoaded() {
+    return Boolean(
+      window.FloatingNotes
+      && window.FloatingNotes.version === WIDGET_VERSION
+      && typeof window.FloatingNotes.init === "function"
+    );
+  }
+
+  function destroyStaleWidget() {
+    if (
+      window.FloatingNotes
+      && window.FloatingNotes.version !== WIDGET_VERSION
+      && window.FloatingNotes.instance
+      && typeof window.FloatingNotes.instance.destroy === "function"
+    ) {
+      window.FloatingNotes.instance.destroy();
+    }
+
+    document.querySelectorAll("floating-notes-widget").forEach((node) => node.remove());
+
+    if (window.FloatingNotes && window.FloatingNotes.version !== WIDGET_VERSION) {
+      try {
+        window.FloatingNotes.instance = null;
+      } catch {
+        // Some hosts expose globals as read-only proxies; loading the new script will replace it.
+      }
+    }
   }
 
   function injectFloatingNotes(overrides) {
@@ -131,10 +184,10 @@
       ...(isPlainObject(overrides) ? overrides : {})
     };
     const apiBase = normalizeBase(config.apiBase || scriptOrigin(currentScript));
-    const widgetSrc = readString(
+    const widgetSrc = versionedWidgetSrc(readString(
       config.widgetSrc,
       apiBase ? `${apiBase}/embed/floating-notes-widget.js` : ""
-    );
+    ));
 
     if (!apiBase || !widgetSrc) {
       console.error(
@@ -154,15 +207,22 @@
     };
     const shouldOpen = readBoolean(config.open ?? config.autoOpen, false);
 
-    if (window.FloatingNotes && typeof window.FloatingNotes.init === "function") {
+    if (isCurrentWidgetLoaded()) {
       // 如果 widget 已经被别的入口加载过，就不重复插 script，直接初始化或复用实例。
-      return mountWidget(options, shouldOpen);
+      return mountExistingWidget(options, shouldOpen);
     }
+
+    destroyStaleWidget();
 
     let widgetScript = document.getElementById(WIDGET_SCRIPT_ID);
 
+    if (widgetScript && widgetScript.dataset.version !== WIDGET_VERSION) {
+      widgetScript.remove();
+      widgetScript = null;
+    }
+
     if (widgetScript) {
-      widgetScript.addEventListener("load", () => mountWidget(options, shouldOpen), { once: true });
+      widgetScript.addEventListener("load", () => openWidgetWhenReady(shouldOpen), { once: true });
       return null;
     }
 
@@ -173,11 +233,13 @@
     }
 
     widgetScript.async = true;
-    // autoInit=false 表示 widget 脚本只负责注册 window.FloatingNotes，
-    // 初始化时机交给当前 inject 脚本控制，这样可以把上面整理好的 options 传进去。
-    widgetScript.dataset.autoInit = "false";
+    // 和 index.html 保持同一路径：真正的 widget 脚本读取 data-* 后自动初始化。
     widgetScript.dataset.apiBase = apiBase;
-    widgetScript.addEventListener("load", () => mountWidget(options, shouldOpen), { once: true });
+    widgetScript.dataset.trigger = options.trigger;
+    widgetScript.dataset.floatButton = String(options.floatButton);
+    widgetScript.dataset.title = options.title;
+    widgetScript.dataset.version = WIDGET_VERSION;
+    widgetScript.addEventListener("load", () => openWidgetWhenReady(shouldOpen), { once: true });
     widgetScript.addEventListener("error", () => {
       console.error(`Floating notes widget failed to load: ${widgetSrc}`);
     }, { once: true });
