@@ -4,14 +4,11 @@ import {
 	MessageSquareText,
 	Moon,
 	NotebookPen,
-	PanelRightOpen,
 	Save,
-	Send,
 	Sun,
 	X,
 } from "lucide-react";
 import {
-	type FormEvent,
 	type PointerEvent as ReactPointerEvent,
 	forwardRef,
 	useCallback,
@@ -26,7 +23,7 @@ import {
 	listNotes,
 	updateNote,
 } from "./notesApi";
-import type { ChatMessage, Note, SelectionToolbar } from "./types";
+import type { Note, SelectionToolbar } from "./types";
 
 type Page = "chat" | "notes";
 export type FloatingNotesCoreHandle = {
@@ -53,46 +50,10 @@ type Particle = {
 	hue: number;
 };
 
-const INITIAL_MESSAGES: ChatMessage[] = [
-	{
-		id: "intro-1",
-		role: "assistant",
-		title: "划词笔记抽屉交互",
-		body: "这是一个划词抽屉笔记界面。选中网页文字后，问AI 会打开响应式抽屉，笔记 会沿当前端侧方向触发闪光并保存到后端笔记。",
-	},
-	{
-		id: "intro-2",
-		role: "assistant",
-		title: "响应式存笔记动效",
-		body: "AI 页面里的「存为笔记」会跟随抽屉方向沉淀到笔记页：PC 走右侧虫洞，移动端走底部虫洞。",
-	},
-	{
-		id: "intro-3",
-		role: "assistant",
-		title: "PC 与移动端抽屉规则",
-		body: "移动端抽屉从屏幕底部向上出现，宽度占满屏幕，高度为屏幕的三分之二；PC 端抽屉从右侧滑入，高度占满屏幕，宽度为屏幕四分之一。",
-	},
-];
-
-function makeId(prefix: string) {
-	return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function makeTitle(text: string) {
-	const firstLine = String(text || "").trim().split(/\n+/)[0] || "新笔记";
-	const title = Array.from(firstLine).slice(0, 30).join("");
-	return firstLine.length > 30 ? `${title}...` : title;
-}
-
 function makeSelectionTitle(text: string) {
 	const normalized = String(text || "").trim().replace(/\s+/g, " ");
 	const prefix = Array.from(normalized).slice(0, 10).join("") || "新笔记";
 	return `${prefix}...`;
-}
-
-function buildDemoAnswer(text: string) {
-	const compact = text.replace(/\s+/g, " ").slice(0, 80);
-	return `我已读取这段内容：「${compact}${text.length > 80 ? "..." : ""}」。\n\n可以先沉淀成三类笔记：核心结论、可执行动作、后续追问。点击下方「存为笔记」会跟随当前抽屉方向写入笔记。`;
 }
 
 async function copyText(text: string) {
@@ -126,8 +87,6 @@ function FloatingNotesCore(
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [activePage, setActivePage] = useState<Page>("notes");
 	const [isDark, setIsDark] = useState(true);
-	const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
-	const [chatInput, setChatInput] = useState("");
 	const [toolbar, setToolbar] = useState<SelectionToolbar | null>(null);
 	const [toolbarText, setToolbarText] = useState("");
 	const [detailOpen, setDetailOpen] = useState(false);
@@ -142,13 +101,13 @@ function FloatingNotesCore(
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const drawerRef = useRef<HTMLElement | null>(null);
 	const toolbarRef = useRef<HTMLDivElement | null>(null);
-	const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
-	const chatScrollRef = useRef<HTMLDivElement | null>(null);
+	const chatFrameRef = useRef<HTMLIFrameElement | null>(null);
 	const particlesRef = useRef<Particle[]>([]);
 	const particleRafRef = useRef(0);
 	const selectionTimerRef = useRef(0);
 	const toastTimerRef = useRef(0);
 	const toolbarActionRef = useRef({ action: "", at: 0 });
+	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
 
 	const showToast = useCallback((message: string) => {
 		window.clearTimeout(toastTimerRef.current);
@@ -352,14 +311,17 @@ function FloatingNotesCore(
 
 	const openDrawerWithText = (text: string) => {
 		open("chat");
-		setChatInput((current) => `【选中内容】${text}\n\n${current}`);
 		window.setTimeout(() => {
-			chatInputRef.current?.focus({ preventScroll: true });
-			const input = chatInputRef.current;
-			if (input) {
-				input.setSelectionRange(input.value.length, input.value.length);
-			}
+			postSelectionToChat(text);
 		}, 260);
+	};
+
+	const postSelectionToChat = (text: string) => {
+		const target = chatFrameRef.current?.contentWindow;
+		if (!target) {
+			return;
+		}
+		target.postMessage({ type: "floating-notes:ask", text }, new URL(chatFrameSrc).origin);
 	};
 
 	const saveSelectionNote = async (text: string) => {
@@ -405,7 +367,6 @@ function FloatingNotesCore(
 		if (action === "ask") {
 			openDrawerWithText(text);
 			setToolbar(null);
-			setToolbarText("");
 			return;
 		}
 
@@ -425,49 +386,6 @@ function FloatingNotesCore(
 	const stopToolbarPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
-	};
-
-	const sendMessage = (event?: FormEvent) => {
-		event?.preventDefault();
-		const text = chatInput.trim();
-		if (!text) {
-			return;
-		}
-		const answer = buildDemoAnswer(text);
-		setMessages((current) => [
-			...current,
-			{ id: makeId("you"), role: "user", body: text },
-			{ id: makeId("ai"), role: "assistant", body: answer, title: makeTitle(answer) },
-		]);
-		setChatInput("");
-		window.setTimeout(() => {
-			if (chatScrollRef.current) {
-				chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-			}
-		}, 0);
-	};
-
-	const saveChatNote = async (title: string, body: string) => {
-		const edge = getSaveEdge();
-		const rect = drawerRef.current?.getBoundingClientRect();
-		const targetX = edge === "right" && rect ? rect.right - 8 : window.innerWidth / 2;
-		const targetY =
-			edge === "right" && rect ? rect.top + rect.height / 2 : window.innerHeight - 8;
-		setEdgeGlow(edge === "right");
-		setBottomGlow(edge === "bottom");
-		window.setTimeout(() => spawnParticles(targetX, targetY, 30, edge), 120);
-		window.setTimeout(async () => {
-			setEdgeGlow(false);
-			setBottomGlow(false);
-			try {
-				await createBackendNote({ title, content: body }, apiBase);
-				await fetchNotes();
-				showToast("已存入笔记");
-			} catch (error) {
-				console.error(error);
-				showToast("保存失败");
-			}
-		}, 420);
 	};
 
 	const createNewNote = () => {
@@ -621,46 +539,20 @@ function FloatingNotesCore(
 								</button>
 							</div>
 						</header>
-						<div className="dst-chat-scroll" ref={chatScrollRef}>
+						<div className="dst-chat-scroll dst-chat-frame-wrap">
 							<div id="dst-wormhole-edge" className={edgeGlow ? "glow" : ""}></div>
-							{messages.map((message) => (
-								<article
-									key={message.id}
-									className={`dst-chat-card ${message.role === "user" ? "user" : ""}`}
-								>
-									<div className={`dst-card-label ${message.role === "user" ? "cyan" : ""}`}>
-										{message.role === "assistant" ? <span className="dst-ai-dot"></span> : null}
-										{message.role === "assistant" ? "AI" : "You"}
-									</div>
-									<p className="dst-card-body">{message.body}</p>
-									{message.role === "assistant" ? (
-										<button
-											type="button"
-											className="dst-save-note-btn"
-											onClick={() =>
-												void saveChatNote(message.title || makeTitle(message.body), message.body)
-											}
-										>
-											<FilePlus2 aria-hidden="true" size={13} />
-											存为笔记
-										</button>
-									) : null}
-								</article>
-							))}
+							<iframe
+								ref={chatFrameRef}
+								className="dst-chat-frame"
+								title="AI 聊天"
+								src={chatFrameSrc}
+								onLoad={() => {
+									if (toolbarText) {
+										postSelectionToChat(toolbarText);
+									}
+								}}
+							></iframe>
 						</div>
-						<form className="dst-chat-input-bar" onSubmit={sendMessage}>
-							<textarea
-								id="dst-chat-input"
-								ref={chatInputRef}
-								rows={1}
-								value={chatInput}
-								onChange={(event) => setChatInput(event.target.value)}
-								placeholder="选中文字点「问AI」，内容会放到这里，可继续补充问题"
-							></textarea>
-							<button type="submit" className="dst-send-btn" title="发送">
-								<Send aria-hidden="true" />
-							</button>
-						</form>
 					</section>
 
 					<section

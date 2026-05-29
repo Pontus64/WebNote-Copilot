@@ -16,19 +16,23 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.39.0",
-    "@cloudflare/vitest-pool-workers": "^0.12.4",
+    "@cloudflare/vitest-pool-workers": "^0.16.10",
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
     "typescript": "^5.5.2",
     "vite": "^7.3.3",
-    "vitest": "~3.2.0",
+    "vitest": "^4.1.7",
     "wrangler": "^4.95.0"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.14.11",
+    "@assistant-ui/react-markdown": "^0.14.1",
     "lucide-react": "^1.17.0",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   }
 }
