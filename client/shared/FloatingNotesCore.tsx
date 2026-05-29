@@ -13,8 +13,10 @@ import {
 import {
 	type FormEvent,
 	type PointerEvent as ReactPointerEvent,
+	forwardRef,
 	useCallback,
 	useEffect,
+	useImperativeHandle,
 	useRef,
 	useState,
 } from "react";
@@ -27,6 +29,19 @@ import {
 import type { ChatMessage, Note, SelectionToolbar } from "./types";
 
 type Page = "chat" | "notes";
+export type FloatingNotesCoreHandle = {
+	open: (page?: Page) => void;
+	close: () => void;
+	toggle: () => void;
+	refresh: () => Promise<void>;
+};
+
+type FloatingNotesCoreProps = {
+	apiBase?: string;
+	floatButton?: boolean;
+	title?: string;
+};
+
 type Particle = {
 	x: number;
 	y: number;
@@ -101,7 +116,11 @@ async function copyText(text: string) {
 	}
 }
 
-export function App() {
+export const FloatingNotesCore = forwardRef<FloatingNotesCoreHandle, FloatingNotesCoreProps>(
+function FloatingNotesCore(
+	{ apiBase = "", floatButton = true, title = "笔记" },
+	ref
+) {
 	const [notes, setNotes] = useState<Note[]>([]);
 	const [notesState, setNotesState] = useState("加载中...");
 	const [drawerOpen, setDrawerOpen] = useState(false);
@@ -140,14 +159,14 @@ export function App() {
 	const fetchNotes = useCallback(async () => {
 		setNotesState("加载中...");
 		try {
-			const nextNotes = await listNotes();
+			const nextNotes = await listNotes(apiBase);
 			setNotes(nextNotes);
 			setNotesState(nextNotes.length ? "" : "暂无笔记");
 		} catch (error) {
 			console.error(error);
 			setNotesState("笔记加载失败，请确认后端服务已启动");
 		}
-	}, []);
+	}, [apiBase]);
 
 	const setupCanvas = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -358,7 +377,7 @@ export function App() {
 			setRightGlow(false);
 			setBottomGlow(false);
 			try {
-				await createBackendNote({ title: makeSelectionTitle(content), content });
+				await createBackendNote({ title: makeSelectionTitle(content), content }, apiBase);
 				await fetchNotes();
 				showToast("已存入笔记");
 			} catch (error) {
@@ -441,7 +460,7 @@ export function App() {
 			setEdgeGlow(false);
 			setBottomGlow(false);
 			try {
-				await createBackendNote({ title, content: body });
+				await createBackendNote({ title, content: body }, apiBase);
 				await fetchNotes();
 				showToast("已存入笔记");
 			} catch (error) {
@@ -475,9 +494,9 @@ export function App() {
 		}
 		try {
 			if (currentNoteId) {
-				await updateNote(currentNoteId, { title, content });
+				await updateNote(currentNoteId, { title, content }, apiBase);
 			} else {
-				await createBackendNote({ title, content });
+				await createBackendNote({ title, content }, apiBase);
 			}
 			await fetchNotes();
 			setDetailOpen(false);
@@ -490,7 +509,7 @@ export function App() {
 
 	const removeNote = async (note: Note) => {
 		try {
-			await deleteBackendNote(note.id);
+			await deleteBackendNote(note.id, apiBase);
 			await fetchNotes();
 			if (currentNoteId === note.id) {
 				setDetailOpen(false);
@@ -503,30 +522,28 @@ export function App() {
 		}
 	};
 
+	const toggle = () => {
+		if (drawerOpen) {
+			close();
+			return;
+		}
+		open("notes");
+	};
+
+	useImperativeHandle(ref, () => ({
+		open,
+		close,
+		toggle,
+		refresh: fetchNotes,
+	}));
+
 	return (
-		<div className={`app-shell ${isDark ? "dark" : "light"}`}>
-			<main className="demo-main">
-				<section className="surface">
-					<h1>Floating Notes</h1>
-					<p>这是普通页面形态，右下角悬浮按钮会打开抽屉。PC 端从右侧滑入，移动端从底部上滑。</p>
-					<p>选中下面任意文字，文字下方会出现工具条，可直接问 AI、复制，或保存到当前 Worker 后端的笔记。</p>
-
-					<div className="demo-text">
-						<p>划词笔记适合把网页中的片段快速沉淀下来。选中文字后，工具条会贴近选区下方出现；点击“笔记”会触发参考脚本里的虫洞动效并写入后端。</p>
-						<p>AI 页保留参考脚本的双页抽屉机制，回答内容可以通过“存为笔记”进入笔记页。笔记页的数据仍然来自当前 y 工程的 /notes API。</p>
-					</div>
-
-					<div className="demo-actions">
-						<button className="primary" type="button" onClick={() => open("notes")}>
-							打开笔记抽屉
-						</button>
-					</div>
-				</section>
-			</main>
-
+		<div className={`floating-notes-scope ${isDark ? "dark" : "light"}`}>
+			{floatButton ? (
 			<button type="button" id="dst-float" aria-label="打开笔记" onClick={() => open("notes")}>
 				<NotebookPen aria-hidden="true" size={21} />
 			</button>
+			) : null}
 			<canvas id="dst-canvas" ref={canvasRef}></canvas>
 			<div id="dst-bottom-wormhole" className={bottomGlow ? "glow" : ""}></div>
 			<div id="dst-right-wormhole" className={rightGlow ? "glow" : ""}></div>
@@ -653,7 +670,7 @@ export function App() {
 						<header className="dst-header">
 							<div className="dst-title">
 								<span className="dst-dot cyan"></span>
-								<span>笔记</span>
+								<span>{title}</span>
 							</div>
 							<div className="dst-actions">
 								<button type="button" className="dst-icon-btn" title="切换主题" onClick={() => setIsDark((value) => !value)}>
@@ -758,4 +775,4 @@ export function App() {
 			) : null}
 		</div>
 	);
-}
+});

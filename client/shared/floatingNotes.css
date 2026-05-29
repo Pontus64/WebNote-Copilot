@@ -34,7 +34,8 @@ svg {
 	display: block;
 }
 
-.app-shell {
+.app-shell,
+.floating-notes-scope {
 	--dst-bg: #0f0f11;
 	--dst-bg-2: #18181b;
 	--dst-bg-3: #27272a;
@@ -51,13 +52,17 @@ svg {
 	--dst-header: rgba(15, 15, 17, 0.92);
 	--dst-shadow: 0 20px 64px rgba(0, 0, 0, 0.56);
 	--dst-radius: 14px;
-	min-height: 100vh;
-	background: #111113;
 	color: var(--dst-text);
 	color-scheme: dark;
 }
 
-.app-shell.light {
+.app-shell {
+	min-height: 100vh;
+	background: #111113;
+}
+
+.app-shell.light,
+.floating-notes-scope.light {
 	--dst-bg: #f4f4f5;
 	--dst-bg-2: #fff;
 	--dst-bg-3: #e4e4e7;

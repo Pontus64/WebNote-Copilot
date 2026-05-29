@@ -5,6 +5,6 @@
 		"types": ["vite/client", "react", "react-dom"],
 		"noEmit": true
 	},
-	"include": ["client/**/*.ts", "client/**/*.tsx", "vite.config.mts"],
+	"include": ["client/**/*.ts", "client/**/*.tsx", "vite.config.mts", "vite.widget.config.mts"],
 	"exclude": ["src", "test", "dist"]
 }
