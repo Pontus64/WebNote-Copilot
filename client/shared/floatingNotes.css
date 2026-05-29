@@ -1736,6 +1736,7 @@ svg {
 	display: flex;
 }
 
+.ask-btn,
 .copy-btn,
 .delete-btn {
 	width: 72px;
@@ -1747,7 +1748,12 @@ svg {
 	font-size: 14px;
 	font-weight: 600;
 	cursor: pointer;
+	-webkit-user-select: none;
 	user-select: none;
+}
+
+.ask-btn {
+	background: linear-gradient(135deg, var(--dst-accent), var(--dst-accent-2));
 }
 
 .copy-btn {
@@ -1762,14 +1768,24 @@ svg {
 	position: relative;
 	width: 100%;
 	height: 72px;
-	border: 0;
 	background: var(--dst-bg-2);
 	padding: 14px 18px;
 	cursor: pointer;
+	outline: none;
 	transition: transform 0.25s ease;
-	user-select: none;
+	-webkit-user-select: text;
+	user-select: text;
 	text-align: left;
 	display: block;
+}
+
+.note-item:focus-visible {
+	outline: 2px solid rgba(99, 102, 241, 0.7);
+	outline-offset: -2px;
+}
+
+.swipe-item.open .note-item {
+	transform: translateX(-216px);
 }
 
 .note-title {
@@ -1780,6 +1796,8 @@ svg {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	-webkit-user-select: text;
+	user-select: text;
 }
 
 .note-desc {
@@ -1789,6 +1807,8 @@ svg {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	-webkit-user-select: text;
+	user-select: text;
 }
 
 .add-item {
@@ -1874,6 +1894,8 @@ svg {
 	color: var(--dst-text);
 	font-size: 20px;
 	font-weight: 700;
+	-webkit-user-select: text;
+	user-select: text;
 }
 
 .detail-title::placeholder {
@@ -1903,6 +1925,8 @@ svg {
 	color: var(--dst-text);
 	font-size: 16px;
 	line-height: 1.8;
+	-webkit-user-select: text;
+	user-select: text;
 }
 
 .detail-content::placeholder {

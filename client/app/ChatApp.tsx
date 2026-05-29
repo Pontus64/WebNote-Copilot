@@ -53,7 +53,12 @@ import {
 	sendChatMessage,
 	summarizeChatContent,
 } from "../shared/apiClient";
-import { createNote } from "../shared/notesApi";
+import {
+	createNote,
+	deleteNote,
+	listNotes,
+	updateNote,
+} from "../shared/notesApi";
 
 type ChatAppProps = {
 	apiBase?: string;
@@ -103,9 +108,21 @@ async function copyText(text: string) {
 	}
 }
 
-function notifyNotesChanged() {
+function notifyNotesChanged(options: { animateSave?: boolean } = {}) {
 	if (window.parent && window.parent !== window) {
-		window.parent.postMessage({ type: "floating-notes:notes-changed" }, "*");
+		window.parent.postMessage(
+			{ type: "floating-notes:notes-changed", animateSave: options.animateSave === true },
+			"*"
+		);
+	}
+}
+
+function notifyBridgeReady(authenticated: boolean) {
+	if (window.parent && window.parent !== window) {
+		window.parent.postMessage(
+			{ type: "floating-notes:bridge-ready", authenticated },
+			"*"
+		);
 	}
 }
 
@@ -183,6 +200,69 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 		void loadInitialState();
 	}, [loadInitialState]);
 
+	const handleNotesBridgeRequest = useCallback(
+		async (event: MessageEvent) => {
+			const id = typeof event.data.id === "number" ? event.data.id : 0;
+			const source = event.source;
+			const respond = (body: Record<string, unknown>) => {
+				(source as Window | null)?.postMessage(
+					{
+						type: "floating-notes:notes-response",
+						id,
+						...body,
+					},
+					event.origin || "*"
+				);
+			};
+
+			try {
+				if (!user) {
+					throw new Error("unauthorized");
+				}
+
+				const action = typeof event.data.action === "string" ? event.data.action : "";
+				const payload = event.data.payload;
+				if (action === "list") {
+					respond({ ok: true, data: await listNotes(apiBase) });
+					return;
+				}
+				if (action === "create") {
+					respond({ ok: true, data: await createNote(payload?.note ?? {}, apiBase) });
+					return;
+				}
+				if (action === "update") {
+					const noteId = typeof payload?.id === "string" ? payload.id : "";
+					if (!noteId) {
+						throw new Error("note id is required");
+					}
+					respond({ ok: true, data: await updateNote(noteId, payload?.note ?? {}, apiBase) });
+					return;
+				}
+				if (action === "delete") {
+					const noteId = typeof payload?.id === "string" ? payload.id : "";
+					if (!noteId) {
+						throw new Error("note id is required");
+					}
+					respond({ ok: true, data: await deleteNote(noteId, apiBase) });
+					return;
+				}
+				throw new Error("unknown notes action");
+			} catch (error) {
+				respond({
+					ok: false,
+					error: error instanceof Error ? error.message : "notes request failed",
+				});
+			}
+		},
+		[apiBase, user]
+	);
+
+	useEffect(() => {
+		if (user) {
+			notifyNotesChanged();
+		}
+	}, [user]);
+
 	useEffect(() => {
 		const url = new URL(window.location.href);
 		const askText = url.searchParams.get("ask");
@@ -192,6 +272,10 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 
 		const handleMessage = (event: MessageEvent) => {
 			if (typeof event.data !== "object" || event.data === null) {
+				return;
+			}
+			if (event.data.type === "floating-notes:notes-request") {
+				void handleNotesBridgeRequest(event);
 				return;
 			}
 			if (event.data.type === "floating-notes:theme") {
@@ -210,8 +294,11 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 		};
 
 		window.addEventListener("message", handleMessage);
+		if (embed && !authLoading) {
+			notifyBridgeReady(Boolean(user));
+		}
 		return () => window.removeEventListener("message", handleMessage);
-	}, []);
+	}, [authLoading, embed, handleNotesBridgeRequest, user]);
 
 	const createLocalThread = useCallback(
 		async (title: string, options: { resetRuntime?: boolean } = {}) => {
@@ -592,7 +679,7 @@ function ChatThreadView({
 
 			void createNote({ title: makeNoteTitle(text), content: text }, apiBase)
 				.then(() => {
-					notifyNotesChanged();
+					notifyNotesChanged({ animateSave: true });
 					showToast("已存入笔记");
 				})
 				.catch((error) => {
@@ -721,7 +808,7 @@ function MessageBubble({
 		setBusyAction("note");
 		try {
 			await createNote({ title: makeNoteTitle(text, "AI回复"), content: text }, apiBase);
-			notifyNotesChanged();
+			notifyNotesChanged({ animateSave: true });
 			onToast("回复已存为笔记");
 		} catch (error) {
 			console.error(error);
@@ -739,7 +826,7 @@ function MessageBubble({
 		try {
 			const { summary } = await summarizeChatContent(apiBase, text);
 			await createNote({ title: makeNoteTitle(summary, "AI概要"), content: summary }, apiBase);
-			notifyNotesChanged();
+			notifyNotesChanged({ animateSave: true });
 			onToast("概要已存为笔记");
 		} catch (error) {
 			console.error(error);

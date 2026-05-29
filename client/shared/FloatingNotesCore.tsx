@@ -1,14 +1,15 @@
 import {
+	Bot,
 	Copy,
 	FilePlus2,
 	MessageSquareText,
 	Moon,
-	NotebookPen,
 	Save,
 	Sun,
 	X,
 } from "lucide-react";
 import {
+	type KeyboardEvent as ReactKeyboardEvent,
 	type PointerEvent as ReactPointerEvent,
 	forwardRef,
 	useCallback,
@@ -20,10 +21,10 @@ import {
 import {
 	createNote as createBackendNote,
 	deleteNote as deleteBackendNote,
-	listNotes,
-	updateNote,
+	listNotes as listBackendNotes,
+	updateNote as updateBackendNote,
 } from "./notesApi";
-import type { Note, SelectionToolbar } from "./types";
+import type { DraftNote, Note, SelectionToolbar } from "./types";
 
 type Page = "chat" | "notes";
 export type FloatingNotesCoreHandle = {
@@ -50,10 +51,50 @@ type Particle = {
 	hue: number;
 };
 
+type SwipeState = {
+	noteId: string;
+	startX: number;
+	startY: number;
+	lastX: number;
+	dragging: boolean;
+	moved: boolean;
+};
+
+type NoteBridgeRequest =
+	| { action: "list"; payload?: undefined }
+	| { action: "create"; payload: { note: DraftNote } }
+	| { action: "update"; payload: { id: string; note: DraftNote } }
+	| { action: "delete"; payload: { id: string } };
+
+type PendingBridgeRequest = {
+	resolve: (value: unknown) => void;
+	reject: (reason?: unknown) => void;
+	timer: number;
+};
+
+type BridgeStatus = "pending" | "ready" | "unauthenticated";
+
+type PendingBridgeReady = {
+	resolve: () => void;
+	reject: (reason?: unknown) => void;
+	timer: number;
+};
+
 function makeSelectionTitle(text: string) {
 	const normalized = String(text || "").trim().replace(/\s+/g, " ");
 	const prefix = Array.from(normalized).slice(0, 10).join("") || "新笔记";
 	return `${prefix}...`;
+}
+
+function noteLoadErrorMessage(error: unknown) {
+	const message = error instanceof Error ? error.message : String(error || "");
+	if (/unauthorized/i.test(message)) {
+		return "请先在 AI 聊天页登录后查看笔记";
+	}
+	if (message.includes("AI 聊天页")) {
+		return "AI 聊天页加载中，请稍后重试";
+	}
+	return "笔记加载失败，请确认后端服务已启动";
 }
 
 async function copyText(text: string) {
@@ -77,6 +118,10 @@ async function copyText(text: string) {
 	}
 }
 
+function isTextControl(element: Element | null): element is HTMLInputElement | HTMLTextAreaElement {
+	return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+}
+
 export const FloatingNotesCore = forwardRef<FloatingNotesCoreHandle, FloatingNotesCoreProps>(
 function FloatingNotesCore(
 	{ apiBase = "", floatButton = true, title = "笔记" },
@@ -97,6 +142,7 @@ function FloatingNotesCore(
 	const [bottomGlow, setBottomGlow] = useState(false);
 	const [rightGlow, setRightGlow] = useState(false);
 	const [edgeGlow, setEdgeGlow] = useState(false);
+	const [swipedNoteId, setSwipedNoteId] = useState<string | null>(null);
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const drawerRef = useRef<HTMLElement | null>(null);
@@ -107,6 +153,12 @@ function FloatingNotesCore(
 	const selectionTimerRef = useRef(0);
 	const toastTimerRef = useRef(0);
 	const toolbarActionRef = useRef({ action: "", at: 0 });
+	const swipeRef = useRef<SwipeState | null>(null);
+	const blockedNoteClickRef = useRef("");
+	const bridgeRequestIdRef = useRef(0);
+	const pendingBridgeRequestsRef = useRef<Map<number, PendingBridgeRequest>>(new Map());
+	const bridgeStatusRef = useRef<BridgeStatus>("pending");
+	const pendingBridgeReadyRef = useRef<Set<PendingBridgeReady>>(new Set());
 	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
 
 	const showToast = useCallback((message: string) => {
@@ -115,17 +167,139 @@ function FloatingNotesCore(
 		toastTimerRef.current = window.setTimeout(() => setToast(""), 900);
 	}, []);
 
+	const useNotesBridge = useCallback(() => {
+		try {
+			return new URL(chatFrameSrc).origin !== window.location.origin;
+		} catch {
+			return false;
+		}
+	}, [chatFrameSrc]);
+
+	const updateBridgeStatus = useCallback((status: BridgeStatus) => {
+		bridgeStatusRef.current = status;
+		if (status === "pending") {
+			return;
+		}
+
+		pendingBridgeReadyRef.current.forEach((pending) => {
+			window.clearTimeout(pending.timer);
+			if (status === "ready") {
+				pending.resolve();
+			} else {
+				pending.reject(new Error("unauthorized"));
+			}
+		});
+		pendingBridgeReadyRef.current.clear();
+	}, []);
+
+	const waitForNotesBridge = useCallback(() => {
+		if (!useNotesBridge()) {
+			return Promise.resolve();
+		}
+		if (bridgeStatusRef.current === "ready") {
+			return Promise.resolve();
+		}
+		if (bridgeStatusRef.current === "unauthenticated") {
+			return Promise.reject(new Error("unauthorized"));
+		}
+
+		return new Promise<void>((resolve, reject) => {
+			const pending: PendingBridgeReady = {
+				resolve,
+				reject,
+				timer: window.setTimeout(() => {
+					pendingBridgeReadyRef.current.delete(pending);
+					reject(new Error("AI 聊天页未响应"));
+				}, 8000),
+			};
+			pendingBridgeReadyRef.current.add(pending);
+		});
+	}, [useNotesBridge]);
+
+	const requestNotesBridge = useCallback(
+		async <T,>(request: NoteBridgeRequest): Promise<T> => {
+			await waitForNotesBridge();
+			const target = chatFrameRef.current?.contentWindow;
+			if (!target) {
+				throw new Error("AI 聊天页尚未加载");
+			}
+
+			const id = (bridgeRequestIdRef.current += 1);
+			const origin = new URL(chatFrameSrc).origin;
+			const result = new Promise<T>((resolve, reject) => {
+				const timer = window.setTimeout(() => {
+					pendingBridgeRequestsRef.current.delete(id);
+					reject(new Error("AI 聊天页未响应"));
+				}, 5000);
+				pendingBridgeRequestsRef.current.set(id, {
+					resolve: resolve as (value: unknown) => void,
+					reject,
+					timer,
+				});
+			});
+
+			target.postMessage(
+				{
+					type: "floating-notes:notes-request",
+					id,
+					action: request.action,
+					payload: request.payload,
+				},
+				origin
+			);
+			return result;
+		},
+		[chatFrameSrc, waitForNotesBridge]
+	);
+
+	const listCurrentNotes = useCallback(async () => {
+		if (useNotesBridge()) {
+			return requestNotesBridge<Note[]>({ action: "list" });
+		}
+		return listBackendNotes(apiBase);
+	}, [apiBase, requestNotesBridge, useNotesBridge]);
+
+	const createCurrentNote = useCallback(
+		async (note: DraftNote) => {
+			if (useNotesBridge()) {
+				return requestNotesBridge<Note>({ action: "create", payload: { note } });
+			}
+			return createBackendNote(note, apiBase);
+		},
+		[apiBase, requestNotesBridge, useNotesBridge]
+	);
+
+	const updateCurrentNote = useCallback(
+		async (id: string, note: DraftNote) => {
+			if (useNotesBridge()) {
+				return requestNotesBridge<Note>({ action: "update", payload: { id, note } });
+			}
+			return updateBackendNote(id, note, apiBase);
+		},
+		[apiBase, requestNotesBridge, useNotesBridge]
+	);
+
+	const deleteCurrentNote = useCallback(
+		async (id: string) => {
+			if (useNotesBridge()) {
+				return requestNotesBridge<{ success: true }>({ action: "delete", payload: { id } });
+			}
+			return deleteBackendNote(id, apiBase);
+		},
+		[apiBase, requestNotesBridge, useNotesBridge]
+	);
+
 	const fetchNotes = useCallback(async () => {
 		setNotesState("加载中...");
 		try {
-			const nextNotes = await listNotes(apiBase);
+			const nextNotes = await listCurrentNotes();
 			setNotes(nextNotes);
 			setNotesState(nextNotes.length ? "" : "暂无笔记");
 		} catch (error) {
 			console.error(error);
-			setNotesState("笔记加载失败，请确认后端服务已启动");
+			setNotesState(noteLoadErrorMessage(error));
 		}
-	}, [apiBase]);
+	}, [listCurrentNotes]);
 
 	const setupCanvas = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -221,6 +395,16 @@ function FloatingNotesCore(
 			if (particleRafRef.current) {
 				cancelAnimationFrame(particleRafRef.current);
 			}
+			pendingBridgeRequestsRef.current.forEach((pending) => {
+				window.clearTimeout(pending.timer);
+				pending.reject(new Error("组件已卸载"));
+			});
+			pendingBridgeRequestsRef.current.clear();
+			pendingBridgeReadyRef.current.forEach((pending) => {
+				window.clearTimeout(pending.timer);
+				pending.reject(new Error("组件已卸载"));
+			});
+			pendingBridgeReadyRef.current.clear();
 		};
 	}, [fetchNotes, setupCanvas]);
 
@@ -230,17 +414,54 @@ function FloatingNotesCore(
 			selectionTimerRef.current = window.setTimeout(() => {
 				const selection = window.getSelection();
 				const text = selection?.toString().trim() ?? "";
-				if (!selection || !selection.rangeCount || !text) {
+				const anchor = selection?.anchorNode ?? null;
+				const focus = selection?.focusNode ?? null;
+				const detailElement = drawerRef.current?.querySelector("#dst-note-detail") ?? null;
+				const anchorInDrawer = Boolean(anchor && drawerRef.current?.contains(anchor));
+				const focusInDrawer = Boolean(focus && drawerRef.current?.contains(focus));
+				const anchorInDetail = Boolean(anchor && detailElement?.contains(anchor));
+				const focusInDetail = Boolean(focus && detailElement?.contains(focus));
+				if (
+					(anchor && toolbarRef.current?.contains(anchor)) ||
+					(focus && toolbarRef.current?.contains(focus))
+				) {
 					setToolbar(null);
 					return;
 				}
-				const anchor = selection.anchorNode;
-				const focus = selection.focusNode;
+				if (!selection || !selection.rangeCount || !text) {
+					const activeElement = document.activeElement;
+					if (activePage !== "notes" || !isTextControl(activeElement)) {
+						setToolbar(null);
+						return;
+					}
+					if (!detailOpen || !detailElement?.contains(activeElement)) {
+						setToolbar(null);
+						return;
+					}
+					const start = activeElement.selectionStart ?? 0;
+					const end = activeElement.selectionEnd ?? 0;
+					const controlText = activeElement.value.slice(start, end).trim();
+					if (!controlText) {
+						setToolbar(null);
+						return;
+					}
+					const rect = activeElement.getBoundingClientRect();
+					const widthGuess = 155;
+					const left = Math.max(
+						8 + widthGuess / 2,
+						Math.min(rect.left + rect.width / 2, window.innerWidth - 8 - widthGuess / 2)
+					);
+					const top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 37));
+					setToolbarText(controlText);
+					setToolbar({ text: controlText, left, top });
+					return;
+				}
 				if (
-					(anchor && drawerRef.current?.contains(anchor)) ||
-					(focus && drawerRef.current?.contains(focus)) ||
-					(anchor && toolbarRef.current?.contains(anchor)) ||
-					(focus && toolbarRef.current?.contains(focus))
+					(anchorInDrawer || focusInDrawer) &&
+					(activePage !== "notes" ||
+						!detailOpen ||
+						!anchorInDetail ||
+						!focusInDetail)
 				) {
 					setToolbar(null);
 					return;
@@ -275,7 +496,6 @@ function FloatingNotesCore(
 			if (
 				target instanceof Element &&
 				(target.closest("#dst-toolbar") ||
-					target.closest("#dst-drawer") ||
 					target.closest("#dst-float"))
 			) {
 				return;
@@ -284,17 +504,44 @@ function FloatingNotesCore(
 		};
 
 		document.addEventListener("selectionchange", handleSelectionChange);
+		document.addEventListener("select", handleSelectionChange, true);
+		document.addEventListener("keyup", handleSelectionChange, true);
+		document.addEventListener("mouseup", handleSelectionChange, true);
+		document.addEventListener("touchend", handleSelectionChange, true);
 		document.addEventListener("mousedown", handleOutsidePointer, true);
 		document.addEventListener("touchstart", handleOutsidePointer, true);
 		return () => {
 			document.removeEventListener("selectionchange", handleSelectionChange);
+			document.removeEventListener("select", handleSelectionChange, true);
+			document.removeEventListener("keyup", handleSelectionChange, true);
+			document.removeEventListener("mouseup", handleSelectionChange, true);
+			document.removeEventListener("touchend", handleSelectionChange, true);
 			document.removeEventListener("mousedown", handleOutsidePointer, true);
 			document.removeEventListener("touchstart", handleOutsidePointer, true);
 		};
-	}, []);
+	}, [activePage, detailOpen]);
 
 	const isMobile = () => window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
 	const getSaveEdge = (): "right" | "bottom" => (isMobile() ? "bottom" : "right");
+
+	const playSaveAnimation = useCallback(
+		(afterAnimation?: () => void) => {
+			const edge = getSaveEdge();
+			const targetX = edge === "right" ? window.innerWidth - 8 : window.innerWidth / 2;
+			const targetY = edge === "right" ? window.innerHeight / 2 : window.innerHeight - 8;
+			setRightGlow(edge === "right");
+			setBottomGlow(edge === "bottom");
+			setEdgeGlow(true);
+			spawnParticles(targetX, targetY, 28, edge);
+			window.setTimeout(() => {
+				setRightGlow(false);
+				setBottomGlow(false);
+				setEdgeGlow(false);
+				afterAnimation?.();
+			}, 430);
+		},
+		[spawnParticles]
+	);
 
 	const open = (page: Page = "notes") => {
 		setActivePage(page);
@@ -345,9 +592,44 @@ function FloatingNotesCore(
 				event.source !== chatFrameRef.current?.contentWindow ||
 				event.origin !== new URL(chatFrameSrc).origin ||
 				typeof event.data !== "object" ||
-				event.data === null ||
-				event.data.type !== "floating-notes:notes-changed"
+				event.data === null
 			) {
+				return;
+			}
+
+			if (event.data.type === "floating-notes:notes-response") {
+				const id = typeof event.data.id === "number" ? event.data.id : 0;
+				const pending = pendingBridgeRequestsRef.current.get(id);
+				if (!pending) {
+					return;
+				}
+				window.clearTimeout(pending.timer);
+				pendingBridgeRequestsRef.current.delete(id);
+				if (event.data.ok === true) {
+					pending.resolve(event.data.data);
+				} else {
+					pending.reject(new Error(typeof event.data.error === "string" ? event.data.error : "请求失败"));
+				}
+				return;
+			}
+
+			if (event.data.type === "floating-notes:bridge-ready") {
+				if (event.data.authenticated === true) {
+					updateBridgeStatus("ready");
+					void fetchNotes();
+				} else {
+					updateBridgeStatus("unauthenticated");
+					setNotes([]);
+					setNotesState("请先在 AI 聊天页登录后查看笔记");
+				}
+				return;
+			}
+
+			if (event.data.type !== "floating-notes:notes-changed") {
+				return;
+			}
+			if (event.data.animateSave === true) {
+				playSaveAnimation(() => void fetchNotes());
 				return;
 			}
 			void fetchNotes();
@@ -355,31 +637,25 @@ function FloatingNotesCore(
 
 		window.addEventListener("message", handleMessage);
 		return () => window.removeEventListener("message", handleMessage);
-	}, [chatFrameSrc, fetchNotes]);
+	}, [chatFrameSrc, fetchNotes, playSaveAnimation, updateBridgeStatus]);
 
 	const saveSelectionNote = async (text: string) => {
 		const content = text.trim();
 		if (!content) {
 			return;
 		}
-		const edge = getSaveEdge();
-		const targetX = edge === "right" ? window.innerWidth - 8 : window.innerWidth / 2;
-		const targetY = edge === "right" ? window.innerHeight / 2 : window.innerHeight - 8;
-		setRightGlow(edge === "right");
-		setBottomGlow(edge === "bottom");
-		spawnParticles(targetX, targetY, 28, edge);
-		window.setTimeout(async () => {
-			setRightGlow(false);
-			setBottomGlow(false);
-			try {
-				await createBackendNote({ title: makeSelectionTitle(content), content }, apiBase);
-				await fetchNotes();
-				showToast("已存入笔记");
-			} catch (error) {
-				console.error(error);
-				showToast("保存失败");
-			}
-		}, 430);
+		playSaveAnimation(() => {
+			void (async () => {
+				try {
+					await createCurrentNote({ title: makeSelectionTitle(content), content });
+					await fetchNotes();
+					showToast("已存入笔记");
+				} catch (error) {
+					console.error(error);
+					showToast("保存失败");
+				}
+			})();
+		});
 	};
 
 	const runToolbarAction = (action: "ask" | "copy" | "save") => {
@@ -430,6 +706,7 @@ function FloatingNotesCore(
 
 	const openDetail = (note: Note) => {
 		setActivePage("notes");
+		setSwipedNoteId(null);
 		setCurrentNoteId(note.id);
 		setDetailTitle(note.title || "");
 		setDetailContent(note.content || "");
@@ -445,9 +722,9 @@ function FloatingNotesCore(
 		}
 		try {
 			if (currentNoteId) {
-				await updateNote(currentNoteId, { title, content }, apiBase);
+				await updateCurrentNote(currentNoteId, { title, content });
 			} else {
-				await createBackendNote({ title, content }, apiBase);
+				await createCurrentNote({ title, content });
 			}
 			await fetchNotes();
 			setDetailOpen(false);
@@ -460,7 +737,7 @@ function FloatingNotesCore(
 
 	const removeNote = async (note: Note) => {
 		try {
-			await deleteBackendNote(note.id, apiBase);
+			await deleteCurrentNote(note.id);
 			await fetchNotes();
 			if (currentNoteId === note.id) {
 				setDetailOpen(false);
@@ -471,6 +748,101 @@ function FloatingNotesCore(
 			console.error(error);
 			showToast("删除失败");
 		}
+	};
+
+	const handleNoteSwipeStart = (note: Note, event: ReactPointerEvent<HTMLDivElement>) => {
+		swipeRef.current = {
+			noteId: note.id,
+			startX: event.clientX,
+			startY: event.clientY,
+			lastX: event.clientX,
+			dragging: false,
+			moved: false,
+		};
+	};
+
+	const handleNoteSwipeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+		const swipe = swipeRef.current;
+		if (!swipe) {
+			return;
+		}
+		const deltaX = event.clientX - swipe.startX;
+		const deltaY = event.clientY - swipe.startY;
+		swipe.lastX = event.clientX;
+		if (Math.hypot(deltaX, deltaY) > 4) {
+			swipe.moved = true;
+		}
+		if (Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY) * 1.1) {
+			swipe.dragging = true;
+		}
+	};
+
+	const finishNoteSwipe = (note: Note) => {
+		const swipe = swipeRef.current;
+		if (!swipe || swipe.noteId !== note.id) {
+			swipeRef.current = null;
+			return;
+		}
+		const deltaX = swipe.lastX - swipe.startX;
+		if (swipe.dragging && deltaX < -34) {
+			setSwipedNoteId(note.id);
+			blockedNoteClickRef.current = note.id;
+			window.setTimeout(() => {
+				if (blockedNoteClickRef.current === note.id) {
+					blockedNoteClickRef.current = "";
+				}
+			}, 0);
+		} else if (swipe.dragging && deltaX > 34) {
+			setSwipedNoteId((current) => (current === note.id ? null : current));
+			blockedNoteClickRef.current = note.id;
+			window.setTimeout(() => {
+				if (blockedNoteClickRef.current === note.id) {
+					blockedNoteClickRef.current = "";
+				}
+			}, 0);
+		} else if (swipe.moved) {
+			blockedNoteClickRef.current = note.id;
+			window.setTimeout(() => {
+				if (blockedNoteClickRef.current === note.id) {
+					blockedNoteClickRef.current = "";
+				}
+			}, 0);
+		}
+		swipeRef.current = null;
+	};
+
+	const cancelNoteSwipe = () => {
+		swipeRef.current = null;
+	};
+
+	const askWithNote = (note: Note) => {
+		const text = (note.content || note.title || "").trim();
+		if (!text) {
+			showToast("笔记内容为空");
+			return;
+		}
+		setSwipedNoteId(null);
+		openDrawerWithText(text);
+	};
+
+	const handleNoteClick = (note: Note) => {
+		if (blockedNoteClickRef.current === note.id) {
+			blockedNoteClickRef.current = "";
+			return;
+		}
+		const selectedText = window.getSelection()?.toString().trim() ?? "";
+		if (selectedText) {
+			return;
+		}
+		openDetail(note);
+	};
+
+	const handleNoteKeyDown = (note: Note, event: ReactKeyboardEvent<HTMLDivElement>) => {
+		if (event.key !== "Enter" && event.key !== " ") {
+			return;
+		}
+		event.preventDefault();
+		handleNoteClick(note);
 	};
 
 	const toggle = () => {
@@ -491,8 +863,8 @@ function FloatingNotesCore(
 	return (
 		<div className={`floating-notes-scope ${isDark ? "dark" : "light"}`}>
 			{floatButton ? (
-			<button type="button" id="dst-float" aria-label="打开笔记" onClick={() => open("notes")}>
-				<NotebookPen aria-hidden="true" size={21} />
+			<button type="button" id="dst-float" aria-label="打开 AI 聊天" onClick={() => open("chat")}>
+				<Bot aria-hidden="true" size={21} />
 			</button>
 			) : null}
 			<canvas id="dst-canvas" ref={canvasRef}></canvas>
@@ -623,31 +995,55 @@ function FloatingNotesCore(
 							{notesState ? <div className="state dst-notes-empty">{notesState}</div> : null}
 							{!notesState
 								? notes.map((note) => (
-										<div className="swipe-item" key={note.id}>
+										<div
+											className={`swipe-item ${swipedNoteId === note.id ? "open" : ""}`}
+											key={note.id}
+											onPointerDown={(event) => handleNoteSwipeStart(note, event)}
+											onPointerMove={handleNoteSwipeMove}
+											onPointerUp={() => finishNoteSwipe(note)}
+											onPointerCancel={cancelNoteSwipe}
+										>
 											<div className="actions">
 												<button
 													type="button"
+													className="ask-btn"
+													onClick={() => askWithNote(note)}
+												>
+													问AI
+												</button>
+												<button
+													type="button"
 													className="copy-btn"
-													onClick={() =>
+													onClick={() => {
+														setSwipedNoteId(null);
 														void copyText(note.content || "")
 															.then(() => showToast("复制成功"))
-															.catch(() => showToast("复制失败"))
-													}
+															.catch(() => showToast("复制失败"));
+													}}
 												>
 													复制
 												</button>
 												<button
 													type="button"
 													className="delete-btn"
-													onClick={() => void removeNote(note)}
+													onClick={() => {
+														setSwipedNoteId(null);
+														void removeNote(note);
+													}}
 												>
 													删除
 												</button>
 											</div>
-											<button type="button" className="note-item" onClick={() => openDetail(note)}>
+											<div
+												role="button"
+												tabIndex={0}
+												className="note-item"
+												onClick={() => handleNoteClick(note)}
+												onKeyDown={(event) => handleNoteKeyDown(note, event)}
+											>
 												<div className="note-title">{note.title || "未命名"}</div>
 												<div className="note-desc">{note.content || ""}</div>
-											</button>
+											</div>
 										</div>
 									))
 								: null}
