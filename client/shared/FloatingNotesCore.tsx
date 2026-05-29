@@ -339,6 +339,24 @@ function FloatingNotesCore(
 		postThemeToChat();
 	}, [postThemeToChat]);
 
+	useEffect(() => {
+		const handleMessage = (event: MessageEvent) => {
+			if (
+				event.source !== chatFrameRef.current?.contentWindow ||
+				event.origin !== new URL(chatFrameSrc).origin ||
+				typeof event.data !== "object" ||
+				event.data === null ||
+				event.data.type !== "floating-notes:notes-changed"
+			) {
+				return;
+			}
+			void fetchNotes();
+		};
+
+		window.addEventListener("message", handleMessage);
+		return () => window.removeEventListener("message", handleMessage);
+	}, [chatFrameSrc, fetchNotes]);
+
 	const saveSelectionNote = async (text: string) => {
 		const content = text.trim();
 		if (!content) {

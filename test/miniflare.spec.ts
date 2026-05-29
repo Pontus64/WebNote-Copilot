@@ -139,6 +139,19 @@ describe("floating notes worker", () => {
 		await expect(messagesResponse.json()).resolves.toEqual([]);
 	});
 
+	it("validates chat summary content", async () => {
+		const auth = await registerTestUser(mf, "summary@example.com");
+		const response = await mf.dispatchFetch("http://example.com/api/chat/summary", {
+			method: "POST",
+			headers: authHeaders(auth.sessionToken),
+			body: JSON.stringify({ content: "" }),
+		});
+		const body = await readJson<{ message: string }>(response);
+
+		expect(response.status).toBe(400);
+		expect(body.message).toBe("summary content is required");
+	});
+
 	it("streams a real DeepSeek response", async () => {
 		const auth = await registerTestUser(mf, "deepseek@example.com");
 		const headers = authHeaders(auth.sessionToken);

@@ -166,3 +166,10 @@ export function sendChatMessage(
 		signal,
 	});
 }
+
+export function summarizeChatContent(apiBase: string, content: string) {
+	return apiRequest<{ summary: string }>(apiBase, "/api/chat/summary", {
+		method: "POST",
+		body: JSON.stringify({ content }),
+	});
+}

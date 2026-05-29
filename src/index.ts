@@ -301,6 +301,15 @@ async function handleChatRequest(
 	const path = url.pathname.replace(/^\/api\/chat\/?/, "");
 	const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
 
+	if (parts.length === 1 && parts[0] === "summary" && request.method === "POST") {
+		const body = await readJsonBody(request);
+		const content = normalizeText(body.content).trim();
+		if (!content) {
+			throw new ApiError(400, "summary content is required");
+		}
+		return json({ summary: await summarizeChatContent(env, content) }, 200, request);
+	}
+
 	if (parts.length === 1 && parts[0] === "threads" && request.method === "GET") {
 		return json(await listThreads(env.wranglerdemo, auth.user.id), 200, request);
 	}
@@ -767,6 +776,57 @@ function buildDeepSeekMessages(messages: ChatMessage[], userContent: string) {
 		},
 		...filtered,
 	];
+}
+
+async function summarizeChatContent(env: EnvWithBindings, content: string): Promise<string> {
+	if (!env.DEEPSEEK_API_KEY) {
+		throw new ApiError(503, "DeepSeek API key is not configured");
+	}
+
+	const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
+		method: "POST",
+		headers: {
+			"Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+			stream: false,
+			thinking: { type: "disabled" },
+			messages: [
+				{
+					role: "system",
+					content:
+						"Summarize the user's text into concise notes in the same language. Keep key facts, decisions, and next actions. Do not add facts that are not in the text.",
+				},
+				{
+					role: "user",
+					content,
+				},
+			],
+		}),
+	});
+
+	if (!upstream.ok) {
+		const detail = await readLimitedText(upstream, 1800);
+		console.error(
+			JSON.stringify({
+				message: "DeepSeek summary request failed",
+				status: upstream.status,
+				detail,
+			})
+		);
+		throw new ApiError(502, "summary failed");
+	}
+
+	const parsed = (await upstream.json().catch(() => null)) as {
+		choices?: Array<{ message?: { content?: unknown } }>;
+	} | null;
+	const summary = parsed?.choices?.[0]?.message?.content;
+	if (typeof summary !== "string" || !summary.trim()) {
+		throw new ApiError(502, "summary failed");
+	}
+	return summary.trim();
 }
 
 async function getAuthContext(

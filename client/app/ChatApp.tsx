@@ -10,13 +10,17 @@ import {
 import {
 	Bot,
 	ChevronLeft,
+	Copy,
+	FilePlus2,
 	LogOut,
 	Menu,
 	MessageSquarePlus,
+	MessageSquareText,
 	MoreHorizontal,
 	PenLine,
 	Plus,
 	Send,
+	Sparkles,
 	Trash2,
 	UserRound,
 	X,
@@ -47,7 +51,9 @@ import {
 	renameThread,
 	readApiError,
 	sendChatMessage,
+	summarizeChatContent,
 } from "../shared/apiClient";
+import { createNote } from "../shared/notesApi";
 
 type ChatAppProps = {
 	apiBase?: string;
@@ -62,7 +68,46 @@ type PendingSelectionMessage = {
 	text: string;
 };
 
+type AiSelectionToolbar = {
+	text: string;
+	left: number;
+	top: number;
+};
+
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
+
+function makeNoteTitle(text: string, fallback = "AI笔记") {
+	const normalized = String(text || "").trim().replace(/\s+/g, " ");
+	const chars = Array.from(normalized).slice(0, 18).join("");
+	return chars ? `${chars}${normalized.length > 18 ? "..." : ""}` : fallback;
+}
+
+async function copyText(text: string) {
+	if (navigator.clipboard?.writeText) {
+		await navigator.clipboard.writeText(text);
+		return;
+	}
+
+	const textarea = document.createElement("textarea");
+	textarea.value = text;
+	textarea.setAttribute("readonly", "readonly");
+	textarea.style.position = "fixed";
+	textarea.style.left = "-9999px";
+	textarea.style.top = "0";
+	document.body.appendChild(textarea);
+	textarea.select();
+	const ok = document.execCommand("copy");
+	textarea.remove();
+	if (!ok) {
+		throw new Error("copy failed");
+	}
+}
+
+function notifyNotesChanged() {
+	if (window.parent && window.parent !== window) {
+		window.parent.postMessage({ type: "floating-notes:notes-changed" }, "*");
+	}
+}
 
 function getInitialTheme(): AiTheme {
 	const theme = new URL(window.location.href).searchParams.get("theme");
@@ -375,6 +420,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 
 				<ChatRuntime
 					key={runtimeKey}
+					apiBase={apiBase}
 					chatModel={chatModel}
 					initialMessages={initialMessages}
 					pendingSelection={pendingSelection}
@@ -385,10 +431,12 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 }
 
 function ChatRuntime({
+	apiBase,
 	chatModel,
 	initialMessages,
 	pendingSelection,
 }: {
+	apiBase: string;
 	chatModel: ChatModelAdapter;
 	initialMessages: readonly ThreadMessageLike[];
 	pendingSelection: PendingSelectionMessage | null;
@@ -397,17 +445,29 @@ function ChatRuntime({
 
 	return (
 		<AssistantRuntimeProvider runtime={runtime}>
-			<ChatThreadView pendingSelection={pendingSelection} />
+			<ChatThreadView apiBase={apiBase} pendingSelection={pendingSelection} />
 		</AssistantRuntimeProvider>
 	);
 }
 
-function ChatThreadView({ pendingSelection }: { pendingSelection: PendingSelectionMessage | null }) {
+function ChatThreadView({
+	apiBase,
+	pendingSelection,
+}: {
+	apiBase: string;
+	pendingSelection: PendingSelectionMessage | null;
+}) {
 	const thread = useThread();
 	const runtime = useThreadRuntime();
 	const [draft, setDraft] = useState("");
 	const [lastSelectionId, setLastSelectionId] = useState(0);
+	const [selectionToolbar, setSelectionToolbar] = useState<AiSelectionToolbar | null>(null);
+	const [selectionText, setSelectionText] = useState("");
+	const [toast, setToast] = useState("");
 	const viewportRef = useRef<HTMLDivElement | null>(null);
+	const toolbarRef = useRef<HTMLDivElement | null>(null);
+	const selectionTimerRef = useRef(0);
+	const toastTimerRef = useRef(0);
 
 	useEffect(() => {
 		const viewport = viewportRef.current;
@@ -423,6 +483,126 @@ function ChatThreadView({ pendingSelection }: { pendingSelection: PendingSelecti
 		setLastSelectionId(pendingSelection.id);
 		setDraft((current) => `【选中内容】${pendingSelection.text}\n\n${current}`.trimEnd());
 	}, [lastSelectionId, pendingSelection]);
+
+	useEffect(() => {
+		return () => {
+			window.clearTimeout(selectionTimerRef.current);
+			window.clearTimeout(toastTimerRef.current);
+		};
+	}, []);
+
+	const showToast = useCallback((message: string) => {
+		window.clearTimeout(toastTimerRef.current);
+		setToast(message);
+		toastTimerRef.current = window.setTimeout(() => setToast(""), 900);
+	}, []);
+
+	useEffect(() => {
+		const handleSelectionChange = () => {
+			window.clearTimeout(selectionTimerRef.current);
+			selectionTimerRef.current = window.setTimeout(() => {
+				const viewport = viewportRef.current;
+				const selection = window.getSelection();
+				const text = selection?.toString().trim() ?? "";
+				if (!viewport || !selection || !selection.rangeCount || !text) {
+					setSelectionToolbar(null);
+					return;
+				}
+
+				const anchor = selection.anchorNode;
+				const focus = selection.focusNode;
+				if (!anchor || !focus || !viewport.contains(anchor) || !viewport.contains(focus)) {
+					setSelectionToolbar(null);
+					return;
+				}
+
+				const anchorElement = anchor instanceof Element ? anchor : anchor.parentElement;
+				const focusElement = focus instanceof Element ? focus : focus.parentElement;
+				if (
+					anchorElement?.closest(".ai-message-actions") ||
+					focusElement?.closest(".ai-message-actions")
+				) {
+					setSelectionToolbar(null);
+					return;
+				}
+
+				try {
+					const range = selection.getRangeAt(0);
+					const rects = Array.from(range.getClientRects()).filter(
+						(rect) => rect.width > 0 && rect.height > 0
+					);
+					const rect = rects[0] ?? range.getBoundingClientRect();
+					if (!rect || (!rect.width && !rect.height)) {
+						setSelectionToolbar(null);
+						return;
+					}
+					const widthGuess = 170;
+					const left = Math.max(
+						8 + widthGuess / 2,
+						Math.min(rect.left + rect.width / 2, window.innerWidth - 8 - widthGuess / 2)
+					);
+					const top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 40));
+					setSelectionText(text);
+					setSelectionToolbar({ text, left, top });
+				} catch {
+					setSelectionToolbar(null);
+				}
+			}, 110);
+		};
+
+		const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+			const target = event.target;
+			if (target instanceof Element && target.closest(".ai-selection-toolbar")) {
+				return;
+			}
+			setSelectionToolbar(null);
+		};
+
+		document.addEventListener("selectionchange", handleSelectionChange);
+		document.addEventListener("mousedown", handlePointerDown, true);
+		document.addEventListener("touchstart", handlePointerDown, true);
+		return () => {
+			document.removeEventListener("selectionchange", handleSelectionChange);
+			document.removeEventListener("mousedown", handlePointerDown, true);
+			document.removeEventListener("touchstart", handlePointerDown, true);
+		};
+	}, []);
+
+	const runSelectionAction = useCallback(
+		(action: "ask" | "copy" | "save") => {
+			const text = (selectionToolbar?.text || selectionText).trim();
+			if (!text) {
+				showToast("未获取到选中文字");
+				return;
+			}
+
+			if (action === "ask") {
+				setDraft((current) => `【选中内容】${text}\n\n${current}`.trimEnd());
+				setSelectionToolbar(null);
+				return;
+			}
+
+			if (action === "copy") {
+				void copyText(text)
+					.then(() => showToast("已复制"))
+					.catch(() => showToast("复制失败"));
+				setSelectionToolbar(null);
+				return;
+			}
+
+			void createNote({ title: makeNoteTitle(text), content: text }, apiBase)
+				.then(() => {
+					notifyNotesChanged();
+					showToast("已存入笔记");
+				})
+				.catch((error) => {
+					console.error(error);
+					showToast("保存失败");
+				});
+			setSelectionToolbar(null);
+		},
+		[apiBase, selectionText, selectionToolbar?.text, showToast]
+	);
 
 	const send = useCallback(() => {
 		const text = draft.trim();
@@ -456,10 +636,39 @@ function ChatThreadView({ pendingSelection }: { pendingSelection: PendingSelecti
 					</div>
 				) : (
 					thread.messages.map((message) => (
-						<MessageBubble key={message.id} message={message} />
+						<MessageBubble
+							key={message.id}
+							apiBase={apiBase}
+							message={message}
+							onToast={showToast}
+						/>
 					))
 				)}
 			</div>
+			{selectionToolbar ? (
+				<div
+					className="ai-selection-toolbar"
+					ref={toolbarRef}
+					style={{ left: selectionToolbar.left, top: selectionToolbar.top }}
+					onPointerDown={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+					}}
+				>
+					<button type="button" className="primary" onClick={() => runSelectionAction("ask")}>
+						<MessageSquareText aria-hidden="true" />
+						问AI
+					</button>
+					<button type="button" onClick={() => runSelectionAction("copy")}>
+						<Copy aria-hidden="true" />
+						复制
+					</button>
+					<button type="button" onClick={() => runSelectionAction("save")}>
+						<FilePlus2 aria-hidden="true" />
+						笔记
+					</button>
+				</div>
+			) : null}
 			<form className="ai-composer" onSubmit={handleSubmit}>
 				<textarea
 					rows={1}
@@ -477,13 +686,68 @@ function ChatThreadView({ pendingSelection }: { pendingSelection: PendingSelecti
 					<Send aria-hidden="true" />
 				</button>
 			</form>
+			{toast ? (
+				<div className="ai-toast show" role="status" aria-live="polite">
+					{toast}
+				</div>
+			) : null}
 		</>
 	);
 }
 
-function MessageBubble({ message }: { message: ThreadMessage }) {
+function MessageBubble({
+	apiBase,
+	message,
+	onToast,
+}: {
+	apiBase: string;
+	message: ThreadMessage;
+	onToast: (message: string) => void;
+}) {
 	const text = getMessageText(message);
 	const isUser = message.role === "user";
+	const [busyAction, setBusyAction] = useState<"note" | "summary" | null>(null);
+
+	const copyReply = useCallback(() => {
+		void copyText(text)
+			.then(() => onToast("已复制回复"))
+			.catch(() => onToast("复制失败"));
+	}, [onToast, text]);
+
+	const saveReply = useCallback(async () => {
+		if (!text || busyAction) {
+			return;
+		}
+		setBusyAction("note");
+		try {
+			await createNote({ title: makeNoteTitle(text, "AI回复"), content: text }, apiBase);
+			notifyNotesChanged();
+			onToast("回复已存为笔记");
+		} catch (error) {
+			console.error(error);
+			onToast("保存失败");
+		} finally {
+			setBusyAction(null);
+		}
+	}, [apiBase, busyAction, onToast, text]);
+
+	const summarizeReply = useCallback(async () => {
+		if (!text || busyAction) {
+			return;
+		}
+		setBusyAction("summary");
+		try {
+			const { summary } = await summarizeChatContent(apiBase, text);
+			await createNote({ title: makeNoteTitle(summary, "AI概要"), content: summary }, apiBase);
+			notifyNotesChanged();
+			onToast("概要已存为笔记");
+		} catch (error) {
+			console.error(error);
+			onToast("概要失败");
+		} finally {
+			setBusyAction(null);
+		}
+	}, [apiBase, busyAction, onToast, text]);
 
 	return (
 		<article className={`ai-message ${isUser ? "user" : "assistant"}`}>
@@ -492,12 +756,35 @@ function MessageBubble({ message }: { message: ThreadMessage }) {
 					<Bot aria-hidden="true" />
 				</div>
 			) : null}
-			<div className="ai-message-content">
-				{isUser ? (
-					<p>{text}</p>
-				) : (
-					<ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-				)}
+			<div className="ai-message-stack">
+				<div className="ai-message-content">
+					{isUser ? (
+						<p>{text}</p>
+					) : (
+						<ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+					)}
+				</div>
+				{!isUser ? (
+					<div className="ai-message-actions" aria-label="AI 回复操作">
+						<button type="button" onClick={copyReply} disabled={!text || Boolean(busyAction)}>
+							<Copy aria-hidden="true" />
+							<span>复制回复</span>
+						</button>
+						<button type="button" onClick={() => void saveReply()} disabled={!text || Boolean(busyAction)}>
+							<FilePlus2 aria-hidden="true" />
+							<span>{busyAction === "note" ? "保存中" : "存为笔记"}</span>
+						</button>
+						<button
+							type="button"
+							className="summary"
+							onClick={() => void summarizeReply()}
+							disabled={!text || Boolean(busyAction)}
+						>
+							<Sparkles aria-hidden="true" />
+							<span>{busyAction === "summary" ? "总结中" : "总结概要"}</span>
+						</button>
+					</div>
+				) : null}
 			</div>
 		</article>
 	);

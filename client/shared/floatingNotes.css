@@ -223,8 +223,21 @@ svg {
 	height: 17px;
 }
 
-.ai-message-content {
+.ai-message-stack {
 	max-width: min(100%, 680px);
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+}
+
+.ai-message.user .ai-message-stack {
+	max-width: min(76%, 560px);
+	align-items: flex-end;
+}
+
+.ai-message-content {
+	max-width: 100%;
 	color: #111827;
 	font-size: 15px;
 	line-height: 1.68;
@@ -233,7 +246,7 @@ svg {
 }
 
 .ai-message.user .ai-message-content {
-	max-width: min(76%, 560px);
+	max-width: 100%;
 	padding: 9px 14px;
 	border-radius: 18px;
 	background: #f3f4f6;
@@ -273,6 +286,151 @@ svg {
 	padding: 0;
 	background: transparent;
 	color: inherit;
+}
+
+.ai-message-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	margin-top: 7px;
+	color: #6b7280;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.ai-message-actions button,
+.ai-selection-toolbar button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	border: none;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.ai-message-actions button {
+	min-height: 30px;
+	padding: 0 8px;
+	border-radius: 8px;
+	background: transparent;
+	color: inherit;
+	font-size: 12px;
+	font-weight: 620;
+}
+
+.ai-message-actions button:hover {
+	background: #f3f4f6;
+	color: #111827;
+}
+
+.ai-message-actions button:disabled {
+	opacity: 0.52;
+	cursor: default;
+}
+
+.ai-message-actions button:disabled:hover {
+	background: transparent;
+	color: inherit;
+}
+
+.ai-message-actions svg {
+	width: 15px;
+	height: 15px;
+}
+
+.ai-message-actions .summary {
+	color: #4f46e5;
+}
+
+.ai-selection-toolbar {
+	position: fixed;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	gap: 3px;
+	min-height: 34px;
+	padding: 4px;
+	border: 1px solid rgba(17, 24, 39, 0.1);
+	border-radius: 10px;
+	background: rgba(255, 255, 255, 0.96);
+	box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+	transform: translateX(-50%);
+	color: #111827;
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.ai-selection-toolbar button {
+	height: 26px;
+	padding: 0 8px;
+	border-radius: 7px;
+	background: transparent;
+	color: #374151;
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.ai-selection-toolbar button:hover {
+	background: #f3f4f6;
+	color: #111827;
+}
+
+.ai-selection-toolbar button.primary {
+	background: #111827;
+	color: #fff;
+}
+
+.ai-selection-toolbar button.primary:hover {
+	background: #1f2937;
+	color: #fff;
+}
+
+.ai-selection-toolbar svg {
+	width: 13px;
+	height: 13px;
+}
+
+.ai-toast {
+	position: fixed;
+	left: 50%;
+	top: 50%;
+	z-index: 40;
+	display: none;
+	transform: translate(-50%, -50%);
+	padding: 9px 15px;
+	border-radius: 11px;
+	background: rgba(17, 24, 39, 0.92);
+	color: #fff;
+	font-size: 13px;
+	font-weight: 720;
+	pointer-events: none;
+}
+
+.ai-toast.show {
+	display: block;
+	animation: aiToast 0.88s ease forwards;
+}
+
+@keyframes aiToast {
+	0% {
+		opacity: 0;
+		transform: translate(-50%, -56%) scale(0.92);
+	}
+	18% {
+		opacity: 1;
+		transform: translate(-50%, -50%) scale(1);
+	}
+	74% {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+		transform: translate(-50%, -44%) scale(0.96);
+	}
 }
 
 .ai-composer {
@@ -686,6 +844,40 @@ svg {
 	background: transparent;
 }
 
+.ai-shell.dark .ai-message-actions {
+	color: #a1a1aa;
+}
+
+.ai-shell.dark .ai-message-actions button:hover {
+	background: #27272a;
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-message-actions .summary {
+	color: #a5b4fc;
+}
+
+.ai-shell.dark .ai-selection-toolbar {
+	border-color: rgba(255, 255, 255, 0.12);
+	background: rgba(24, 24, 27, 0.96);
+	box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38);
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-selection-toolbar button {
+	color: #d4d4d8;
+}
+
+.ai-shell.dark .ai-selection-toolbar button:hover {
+	background: #27272a;
+	color: #fff;
+}
+
+.ai-shell.dark .ai-selection-toolbar button.primary {
+	background: linear-gradient(135deg, #6366f1, #8b5cf6);
+	color: #fff;
+}
+
 .ai-shell.dark .ai-composer textarea,
 .ai-auth.dark .ai-auth-panel input {
 	border-color: rgba(255, 255, 255, 0.16);
@@ -800,7 +992,7 @@ svg {
 		padding: 10px 14px;
 	}
 
-	.ai-message.user .ai-message-content {
+	.ai-message.user .ai-message-stack {
 		max-width: 82%;
 	}
 
