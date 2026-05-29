@@ -10,23 +10,25 @@
 
 - 新增依赖：`@assistant-ui/react`、Markdown 渲染所需的 assistant-ui/React Markdown 相关包；不用默认文件上传组件。
 - D1 新迁移：
-  - `users`: `id,email,password_hash,password_salt,password_params_json,created_at,updated_at`
-  - `sessions`: `id,user_id,token_hash,created_at,expires_at,revoked_at`
-  - `chat_threads`: `id,user_id,title,created_at,updated_at,archived_at`
-  - `chat_messages`: `id,thread_id,user_id,role,content,status,created_at,metadata_json`
+  - `auth_users`: `id,email,password_hash,password_salt,password_iterations,created_at,updated_at`
+  - `auth_sessions`: `id,user_id,token_hash,created_at,expires_at,revoked_at`
+  - `auth_chat_threads`: `id,user_id,title,created_at,updated_at,archived_at`
+  - `auth_chat_messages`: `id,thread_id,user_id,role,content,status,created_at,metadata`
+  - 采用 `auth_*` 前缀避免和既有用户系统表冲突。
   - `notes` 增加 `user_id` 和索引；首次注册用户自动认领旧 `user_id IS NULL` 笔记。
 - Auth API：
   - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
-  - 邮箱密码注册登录；PBKDF2-SHA256 加盐哈希；主站用 `HttpOnly Secure SameSite=Lax` cookie；iframe 同时可用同源 `localStorage` session token 作为 cookie 受限时的 fallback。
+  - 邮箱密码注册登录；PBKDF2-SHA256 加盐哈希，迭代次数固定为 `100000`，避免超过 Cloudflare Workers PBKDF2 生产限制；主站用 `HttpOnly Secure SameSite=Lax` cookie；iframe 同时可用同源 `localStorage` session token 作为 cookie 受限时的 fallback。
 - Chat/notes API：
   - `GET/POST /api/chat/threads`, `GET/PATCH/DELETE /api/chat/threads/:id`
   - `GET /api/chat/threads/:id/messages`
-  - `POST /api/chat/threads/:id/messages`：保存用户消息，调用 DeepSeek `https://api.deepseek.com/chat/completions`，默认模型 `deepseek-v4-flash`，流式返回并保存 assistant 消息。
+  - `POST /api/chat/threads/:id/messages`：保存用户消息，调用 DeepSeek `https://api.deepseek.com/chat/completions`，默认模型 `deepseek-v4-flash`，流式返回并保存 assistant 消息；默认传 `thinking: { type: "disabled" }`，保持普通 ChatGPT 风格回复。
   - `/api/notes` 按登录用户隔离；旧 `/notes` 保留为兼容别名但同样要求认证。
 - Wrangler：
   - 增加 `run_worker_first`：`/api/*`, `/notes`, `/notes/*`
   - 增加非密配置 `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`
   - `DEEPSEEK_API_KEY` 用 `wrangler secret put` 配置；不在仓库写入密钥。
+  - 本地和线上聊天测试都直接请求 DeepSeek，不使用 mock；本地测试进程从 `DEEPSEEK_API_KEY` 环境变量读取密钥。
   - 修改绑定/vars 后运行 `npx wrangler types`。
 
 ## UI Behavior

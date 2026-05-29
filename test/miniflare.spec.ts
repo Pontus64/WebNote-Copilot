@@ -23,32 +23,7 @@ describe("floating notes worker", () => {
 	let db: D1Database;
 
 	beforeAll(async () => {
-		mf = new Miniflare({
-			name: "y-test",
-			scriptPath: "dist/y/index.js",
-			modules: true,
-			modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
-			compatibilityDate: "2026-05-29",
-			compatibilityFlags: [...compatibilityFlags],
-			bindings: {
-				DEEPSEEK_BASE_URL: "https://api.deepseek.com",
-				DEEPSEEK_MODEL: "deepseek-v4-flash",
-			},
-			d1Databases: ["wranglerdemo"],
-			assets: {
-				directory: "./public",
-				binding: "ASSETS",
-				routerConfig: {
-					has_user_worker: true,
-					static_routing: {
-						user_worker: ["/api/*", "/notes", "/notes/*"],
-					},
-				},
-				assetConfig: {
-					not_found_handling: "single-page-application",
-				},
-			},
-		} satisfies MiniflareOptions);
+		mf = createMiniflare({ name: "y-test" });
 		await mf.ready;
 		db = await mf.getD1Database("wranglerdemo");
 		await resetDatabase(db);
@@ -60,8 +35,7 @@ describe("floating notes worker", () => {
 
 	it("requires auth for notes", async () => {
 		const response = await mf.dispatchFetch("http://example.com/api/notes");
-		const text = await response.clone().text();
-		const body = JSON.parse(text) as { message: string };
+		const body = await readJson<{ message: string }>(response);
 
 		expect(response.status).toBe(401);
 		expect(body.message).toBe("unauthorized");
@@ -136,7 +110,6 @@ describe("floating notes worker", () => {
 		const missingResponse = await mf.dispatchFetch(`http://example.com/api/notes/${created.id}`, {
 			headers,
 		});
-		console.log("missing response", missingResponse.status, await missingResponse.clone().text());
 		expect(missingResponse.status).toBe(404);
 	});
 
@@ -166,13 +139,13 @@ describe("floating notes worker", () => {
 		await expect(messagesResponse.json()).resolves.toEqual([]);
 	});
 
-	it("streams a fallback message when DeepSeek key is missing", async () => {
-		const auth = await registerTestUser(mf, "stream@example.com");
+	it("streams a real DeepSeek response", async () => {
+		const auth = await registerTestUser(mf, "deepseek@example.com");
 		const headers = authHeaders(auth.sessionToken);
 		const threadResponse = await mf.dispatchFetch("http://example.com/api/chat/threads", {
 			method: "POST",
 			headers,
-			body: JSON.stringify({ title: "无密钥测试" }),
+			body: JSON.stringify({ title: "真实 DeepSeek 测试" }),
 		});
 		const thread = await readJson<{ id: string }>(threadResponse);
 		const response = await mf.dispatchFetch(
@@ -180,13 +153,15 @@ describe("floating notes worker", () => {
 			{
 				method: "POST",
 				headers,
-				body: JSON.stringify({ content: "hello" }),
+				body: JSON.stringify({
+					content: "请只回复两个大写英文字母 OK，不要添加其他任何内容。",
+				}),
 			}
 		);
 		const text = await response.text();
 
 		expect(response.status).toBe(200);
-		expect(text).toContain("DeepSeek API key is not configured");
+		expect(text.trim().toUpperCase()).toContain("OK");
 	});
 
 	it("serves the floating notes injector as a static asset", async () => {
@@ -230,8 +205,52 @@ async function readJson<T>(response: JsonResponse): Promise<T> {
 	return (await response.json()) as T;
 }
 
+function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
+	return new Miniflare({
+		name: "y-test",
+		scriptPath: "dist/y/index.js",
+		modules: true,
+		modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+		compatibilityDate: "2026-05-29",
+		compatibilityFlags: [...compatibilityFlags],
+		bindings: {
+			DEEPSEEK_BASE_URL: "https://api.deepseek.com",
+			DEEPSEEK_MODEL: "deepseek-v4-flash",
+			DEEPSEEK_API_KEY: readDeepSeekApiKey(),
+			...(options.bindings ?? {}),
+		},
+		d1Databases: ["wranglerdemo"],
+		assets: {
+			directory: "./public",
+			binding: "ASSETS",
+			routerConfig: {
+				has_user_worker: true,
+				static_routing: {
+					user_worker: ["/api/*", "/notes", "/notes/*"],
+				},
+			},
+			assetConfig: {
+				not_found_handling: "single-page-application",
+			},
+		},
+		...options,
+	} satisfies MiniflareOptions);
+}
+
+function readDeepSeekApiKey(): string {
+	const key = process.env.DEEPSEEK_API_KEY?.trim();
+	if (!key) {
+		throw new Error("DEEPSEEK_API_KEY is required because chat tests call real DeepSeek.");
+	}
+	return key;
+}
+
 async function resetDatabase(db: D1Database) {
 	await db.exec("DROP TABLE IF EXISTS d1_migrations");
+	await db.exec("DROP TABLE IF EXISTS auth_chat_messages");
+	await db.exec("DROP TABLE IF EXISTS auth_chat_threads");
+	await db.exec("DROP TABLE IF EXISTS auth_sessions");
+	await db.exec("DROP TABLE IF EXISTS auth_users");
 	await db.exec("DROP TABLE IF EXISTS chat_messages");
 	await db.exec("DROP TABLE IF EXISTS chat_threads");
 	await db.exec("DROP TABLE IF EXISTS sessions");

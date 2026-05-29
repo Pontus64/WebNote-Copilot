@@ -12,6 +12,12 @@
 		"global_fetch_strictly_public",
 		"disable_ctx_exports"
 	],
+	"routes": [
+		{
+			"pattern": "notes.edmund.xin",
+			"custom_domain": true
+		}
+	],
 	"assets": {
 		// The path to the directory containing the `index.html` file to be served at `/`
 		"directory": "./public",

@@ -81,7 +81,7 @@ type EnvWithBindings = Env & {
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const PASSWORD_ITERATIONS = 120_000;
+const PASSWORD_ITERATIONS = 100_000;
 const SESSION_COOKIE_FALLBACK = "fn_session";
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
@@ -90,12 +90,15 @@ const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
 const encoder = new TextEncoder();
 
 class ApiError extends Error {
+	readonly isApiError = true;
+
 	constructor(
 		public readonly status: number,
 		message: string,
 		public readonly expose = true
 	) {
 		super(message);
+		this.name = "ApiError";
 	}
 }
 
@@ -109,11 +112,11 @@ export default {
 
 		try {
 			if (url.pathname.startsWith("/api/auth/")) {
-				return handleAuthRequest(request, env, url);
+				return await handleAuthRequest(request, env, url);
 			}
 
 			if (url.pathname.startsWith("/api/chat/")) {
-				return handleChatRequest(request, env, ctx, url);
+				return await handleChatRequest(request, env, ctx, url);
 			}
 
 			if (
@@ -122,7 +125,7 @@ export default {
 				url.pathname === "/notes" ||
 				url.pathname.startsWith("/notes/")
 			) {
-				return handleNotesRequest(request, env, url);
+				return await handleNotesRequest(request, env, url);
 			}
 		} catch (error) {
 			return handleApiError(error, request);
@@ -155,7 +158,7 @@ async function handleAuthRequest(
 		}
 
 		const existing = await env.wranglerdemo
-			.prepare("SELECT id FROM users WHERE email = ?")
+			.prepare("SELECT id FROM auth_users WHERE email = ?")
 			.bind(email)
 			.first<{ id: string }>();
 		if (existing) {
@@ -174,7 +177,7 @@ async function handleAuthRequest(
 
 		await env.wranglerdemo
 			.prepare(
-				`INSERT INTO users (id, email, password_salt, password_hash, password_iterations, created_at, updated_at)
+				`INSERT INTO auth_users (id, email, password_salt, password_hash, password_iterations, created_at, updated_at)
 				 VALUES (?, ?, ?, ?, ?, ?, ?)`
 			)
 			.bind(user.id, user.email, salt, passwordHash, PASSWORD_ITERATIONS, now, now)
@@ -201,7 +204,7 @@ async function handleAuthRequest(
 		const row = await env.wranglerdemo
 			.prepare(
 				`SELECT id, email, password_salt, password_hash, password_iterations, created_at, updated_at
-				 FROM users
+				 FROM auth_users
 				 WHERE email = ?`
 			)
 			.bind(email)
@@ -230,7 +233,7 @@ async function handleAuthRequest(
 		const auth = await getAuthContext(request, env, false);
 		if (auth) {
 			await env.wranglerdemo
-				.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ?")
+				.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE id = ?")
 				.bind(Date.now(), auth.sessionId)
 				.run();
 		}
@@ -464,7 +467,7 @@ async function listThreads(db: D1Database, userId: string): Promise<ChatThread[]
 	const { results } = await db
 		.prepare(
 			`SELECT id, title, created_at, updated_at
-			 FROM chat_threads
+			 FROM auth_chat_threads
 			 WHERE user_id = ? AND archived_at IS NULL
 			 ORDER BY updated_at DESC, created_at DESC`
 		)
@@ -490,7 +493,7 @@ async function createThread(
 
 	await db
 		.prepare(
-			`INSERT INTO chat_threads (id, user_id, title, created_at, updated_at)
+			`INSERT INTO auth_chat_threads (id, user_id, title, created_at, updated_at)
 			 VALUES (?, ?, ?, ?, ?)`
 		)
 		.bind(thread.id, userId, thread.title, thread.createdAt, thread.updatedAt)
@@ -507,7 +510,7 @@ async function requireThread(
 	const row = await db
 		.prepare(
 			`SELECT id, title, created_at, updated_at
-			 FROM chat_threads
+			 FROM auth_chat_threads
 			 WHERE id = ? AND user_id = ? AND archived_at IS NULL`
 		)
 		.bind(threadId, userId)
@@ -529,7 +532,7 @@ async function renameThread(
 	const updatedAt = Date.now();
 	const result = await db
 		.prepare(
-			`UPDATE chat_threads
+			`UPDATE auth_chat_threads
 			 SET title = ?, updated_at = ?
 			 WHERE id = ? AND user_id = ? AND archived_at IS NULL`
 		)
@@ -540,14 +543,14 @@ async function renameThread(
 		throw new ApiError(404, "thread not found");
 	}
 
-	return { id: threadId, title, createdAt: updatedAt, updatedAt };
+	return requireThread(db, userId, threadId);
 }
 
 async function archiveThread(db: D1Database, userId: string, threadId: string): Promise<void> {
 	const now = Date.now();
 	const result = await db
 		.prepare(
-			`UPDATE chat_threads
+			`UPDATE auth_chat_threads
 			 SET archived_at = ?, updated_at = ?
 			 WHERE id = ? AND user_id = ? AND archived_at IS NULL`
 		)
@@ -567,7 +570,7 @@ async function listThreadMessages(
 	const { results } = await db
 		.prepare(
 			`SELECT id, thread_id, role, content, status, metadata, created_at
-			 FROM chat_messages
+			 FROM auth_chat_messages
 			 WHERE thread_id = ? AND user_id = ?
 			 ORDER BY created_at ASC`
 		)
@@ -592,13 +595,13 @@ async function streamAssistantReply(
 	await env.wranglerdemo.batch([
 		env.wranglerdemo
 			.prepare(
-				`INSERT INTO chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
+				`INSERT INTO auth_chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
 				 VALUES (?, ?, ?, 'user', ?, 'complete', '{}', ?)`
 			)
 			.bind(userMessageId, thread.id, auth.user.id, userContent, now),
 		env.wranglerdemo
 			.prepare(
-				`UPDATE chat_threads
+				`UPDATE auth_chat_threads
 				 SET title = CASE WHEN title = '新聊天' THEN ? ELSE title END,
 				     updated_at = ?
 				 WHERE id = ? AND user_id = ?`
@@ -664,6 +667,7 @@ async function pumpDeepSeekResponse(
 			body: JSON.stringify({
 				model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
 				stream: true,
+				thinking: { type: "disabled" },
 				messages: buildDeepSeekMessages(messages, userContent),
 			}),
 		});
@@ -707,7 +711,7 @@ async function pumpDeepSeekResponse(
 		metadata = { error: error instanceof Error ? error.message : String(error) };
 		if (!assistantContent) {
 			assistantContent =
-				error instanceof ApiError && error.status === 503
+				isApiError(error) && error.status === 503
 					? "DeepSeek API key is not configured."
 					: "AI reply failed. Please try again later.";
 			await writer.write(encoder.encode(assistantContent));
@@ -717,7 +721,7 @@ async function pumpDeepSeekResponse(
 		await env.wranglerdemo.batch([
 			env.wranglerdemo
 				.prepare(
-					`INSERT INTO chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
+				`INSERT INTO auth_chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
 					 VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`
 				)
 				.bind(
@@ -731,7 +735,7 @@ async function pumpDeepSeekResponse(
 				),
 			env.wranglerdemo
 				.prepare(
-					`UPDATE chat_threads
+					`UPDATE auth_chat_threads
 					 SET updated_at = ?
 					 WHERE id = ? AND user_id = ?`
 				)
@@ -782,8 +786,8 @@ async function getAuthContext(
 	const row = await env.wranglerdemo
 		.prepare(
 			`SELECT s.id AS session_id, u.id, u.email, u.created_at, u.updated_at
-			 FROM sessions s
-			 INNER JOIN users u ON u.id = s.user_id
+			 FROM auth_sessions s
+			 INNER JOIN auth_users u ON u.id = s.user_id
 			 WHERE s.token_hash = ?
 			   AND s.revoked_at IS NULL
 			   AND s.expires_at > ?`
@@ -836,7 +840,7 @@ async function createSession(db: D1Database, userId: string) {
 
 	await db
 		.prepare(
-			`INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at)
+			`INSERT INTO auth_sessions (id, user_id, token_hash, created_at, expires_at)
 			 VALUES (?, ?, ?, ?, ?)`
 		)
 		.bind(session.id, userId, tokenHash, now, session.expiresAt)
@@ -1084,7 +1088,7 @@ function json(
 }
 
 function handleApiError(error: unknown, request: Request): Response {
-	if (error instanceof ApiError) {
+	if (isApiError(error)) {
 		return json(
 			{ message: error.expose ? error.message : "request failed" },
 			error.status,
@@ -1099,4 +1103,21 @@ function handleApiError(error: unknown, request: Request): Response {
 		})
 	);
 	return json({ message: "internal server error" }, 500, request);
+}
+
+function isApiError(error: unknown): error is ApiError {
+	if (error instanceof ApiError) {
+		return true;
+	}
+
+	if (!isRecord(error)) {
+		return false;
+	}
+
+	return (
+		error.isApiError === true &&
+		error.name === "ApiError" &&
+		typeof error.status === "number" &&
+		typeof error.message === "string"
+	);
 }
