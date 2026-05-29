@@ -55,6 +55,7 @@ type ChatAppProps = {
 };
 
 type AuthMode = "login" | "register";
+type AiTheme = "dark" | "light";
 
 type PendingSelectionMessage = {
 	id: number;
@@ -62,6 +63,11 @@ type PendingSelectionMessage = {
 };
 
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
+
+function getInitialTheme(): AiTheme {
+	const theme = new URL(window.location.href).searchParams.get("theme");
+	return theme === "light" ? "light" : "dark";
+}
 
 export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 	const [user, setUser] = useState<User | null>(null);
@@ -75,6 +81,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 	const [runtimeKey, setRuntimeKey] = useState("empty");
 	const [historyOpen, setHistoryOpen] = useState(!embed && window.innerWidth >= 900);
 	const [pendingSelection, setPendingSelection] = useState<PendingSelectionMessage | null>(null);
+	const [theme, setTheme] = useState<AiTheme>(getInitialTheme);
 	const activeThreadIdRef = useRef<string | null>(null);
 
 	useEffect(() => {
@@ -142,6 +149,12 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 			if (typeof event.data !== "object" || event.data === null) {
 				return;
 			}
+			if (event.data.type === "floating-notes:theme") {
+				if (event.data.theme === "dark" || event.data.theme === "light") {
+					setTheme(event.data.theme);
+				}
+				return;
+			}
 			if (event.data.type !== "floating-notes:ask") {
 				return;
 			}
@@ -156,12 +169,14 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 	}, []);
 
 	const createLocalThread = useCallback(
-		async (title: string) => {
+		async (title: string, options: { resetRuntime?: boolean } = {}) => {
 			const thread = await createThread(apiBase, title);
 			setActiveThreadId(thread.id);
 			activeThreadIdRef.current = thread.id;
-			setInitialMessages(EMPTY_MESSAGES);
-			setRuntimeKey(`${thread.id}:new:${Date.now()}`);
+			if (options.resetRuntime) {
+				setInitialMessages(EMPTY_MESSAGES);
+				setRuntimeKey(`${thread.id}:new:${Date.now()}`);
+			}
 			setThreads((current) => [thread, ...current.filter((item) => item.id !== thread.id)]);
 			if (window.innerWidth < 900) {
 				setHistoryOpen(false);
@@ -176,7 +191,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 			if (activeThreadIdRef.current) {
 				return activeThreadIdRef.current;
 			}
-			const thread = await createLocalThread(prompt);
+			const thread = await createLocalThread(prompt, { resetRuntime: false });
 			return thread.id;
 		},
 		[createLocalThread]
@@ -308,15 +323,15 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 	);
 
 	if (authLoading) {
-		return <div className="ai-loading">Loading</div>;
+		return <div className={`ai-loading ${theme}`}>Loading</div>;
 	}
 
 	if (!user) {
-		return <AuthScreen error={authError} embed={embed} onSubmit={handleAuth} />;
+		return <AuthScreen error={authError} embed={embed} theme={theme} onSubmit={handleAuth} />;
 	}
 
 	return (
-		<div className={`ai-shell ${embed ? "embed" : ""}`}>
+		<div className={`ai-shell ${theme} ${embed ? "embed" : ""}`}>
 			<HistoryDrawer
 				activeThreadId={activeThreadId}
 				embed={embed}
@@ -574,10 +589,12 @@ function HistoryDrawer({
 function AuthScreen({
 	embed,
 	error,
+	theme,
 	onSubmit,
 }: {
 	embed: boolean;
 	error: string;
+	theme: AiTheme;
 	onSubmit: (mode: AuthMode, email: string, password: string) => Promise<void>;
 }) {
 	const [mode, setMode] = useState<AuthMode>("login");
@@ -596,7 +613,7 @@ function AuthScreen({
 	};
 
 	return (
-		<div className={`ai-auth ${embed ? "embed" : ""}`}>
+		<div className={`ai-auth ${theme} ${embed ? "embed" : ""}`}>
 			<form className="ai-auth-panel" onSubmit={submit}>
 				<div className="ai-auth-brand">
 					<button

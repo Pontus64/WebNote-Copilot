@@ -324,6 +324,21 @@ function FloatingNotesCore(
 		target.postMessage({ type: "floating-notes:ask", text }, new URL(chatFrameSrc).origin);
 	};
 
+	const postThemeToChat = useCallback(() => {
+		const target = chatFrameRef.current?.contentWindow;
+		if (!target) {
+			return;
+		}
+		target.postMessage(
+			{ type: "floating-notes:theme", theme: isDark ? "dark" : "light" },
+			new URL(chatFrameSrc).origin
+		);
+	}, [chatFrameSrc, isDark]);
+
+	useEffect(() => {
+		postThemeToChat();
+	}, [postThemeToChat]);
+
 	const saveSelectionNote = async (text: string) => {
 		const content = text.trim();
 		if (!content) {
@@ -547,6 +562,7 @@ function FloatingNotesCore(
 								title="AI 聊天"
 								src={chatFrameSrc}
 								onLoad={() => {
+									postThemeToChat();
 									if (toolbarText) {
 										postSelectionToChat(toolbarText);
 									}

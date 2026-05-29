@@ -617,6 +617,162 @@ svg {
 	cursor: default;
 }
 
+.ai-loading.dark,
+.ai-shell.dark,
+.ai-auth.dark {
+	background: #0f0f11;
+	color: #f4f4f5;
+	color-scheme: dark;
+}
+
+.ai-shell.dark .ai-main {
+	background: #0f0f11;
+}
+
+.ai-shell.dark .ai-topbar {
+	border-bottom-color: rgba(255, 255, 255, 0.09);
+	background: rgba(15, 15, 17, 0.96);
+}
+
+.ai-shell.dark .ai-topbar-title,
+.ai-shell.dark .ai-empty h1,
+.ai-auth.dark .ai-auth-brand {
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-icon-button,
+.ai-auth.dark .ai-auth-back {
+	color: #a1a1aa;
+}
+
+.ai-shell.dark .ai-icon-button:hover,
+.ai-auth.dark .ai-auth-back:hover {
+	background: #27272a;
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-empty {
+	color: #a1a1aa;
+}
+
+.ai-shell.dark .ai-empty svg {
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-message-avatar,
+.ai-shell.dark .ai-send-button,
+.ai-auth.dark .ai-auth-submit {
+	background: linear-gradient(135deg, #6366f1, #8b5cf6);
+	color: #fff;
+}
+
+.ai-shell.dark .ai-message-content {
+	color: #e4e4e7;
+}
+
+.ai-shell.dark .ai-message.user .ai-message-content,
+.ai-shell.dark .ai-message-content code {
+	background: #27272a;
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-message-content pre {
+	border: 1px solid rgba(255, 255, 255, 0.09);
+	background: #18181b;
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-message-content pre code {
+	background: transparent;
+}
+
+.ai-shell.dark .ai-composer textarea,
+.ai-auth.dark .ai-auth-panel input {
+	border-color: rgba(255, 255, 255, 0.16);
+	background: #18181b;
+	color: #f4f4f5;
+	box-shadow: none;
+}
+
+.ai-shell.dark .ai-composer textarea:focus,
+.ai-auth.dark .ai-auth-panel input:focus {
+	border-color: rgba(99, 102, 241, 0.72);
+}
+
+.ai-shell.dark .ai-composer textarea::placeholder,
+.ai-auth.dark .ai-auth-panel input::placeholder {
+	color: #71717a;
+}
+
+.ai-shell.dark .ai-send-button:disabled,
+.ai-auth.dark .ai-auth-submit:disabled {
+	background: #3f3f46;
+	color: #8a8a93;
+}
+
+.ai-shell.dark .ai-history {
+	border-right-color: rgba(255, 255, 255, 0.09);
+	background: #18181b;
+}
+
+.ai-shell.dark .ai-history-new {
+	background: #27272a;
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-thread-row {
+	color: #e4e4e7;
+}
+
+.ai-shell.dark .ai-thread-row.active,
+.ai-shell.dark .ai-thread-row:hover {
+	background: #27272a;
+}
+
+.ai-shell.dark .ai-thread-actions button {
+	color: #a1a1aa;
+}
+
+.ai-shell.dark .ai-thread-actions button:hover {
+	background: #3f3f46;
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-thread-state {
+	color: #a1a1aa;
+}
+
+.ai-shell.dark .ai-history-user {
+	border-top-color: rgba(255, 255, 255, 0.09);
+}
+
+.ai-shell.dark .ai-history-user > div {
+	color: #f4f4f5;
+}
+
+.ai-shell.dark .ai-history-scrim {
+	background: rgba(0, 0, 0, 0.5);
+}
+
+.ai-auth.dark .ai-auth-tabs {
+	background: #27272a;
+}
+
+.ai-auth.dark .ai-auth-tabs button {
+	color: #a1a1aa;
+}
+
+.ai-auth.dark .ai-auth-tabs button.active {
+	background: #18181b;
+	color: #f4f4f5;
+	box-shadow: none;
+}
+
+.ai-auth.dark .ai-auth-error {
+	background: #451a1a;
+	color: #fecaca;
+}
+
 @media (min-width: 900px) {
 	.ai-history {
 		position: relative;
@@ -1125,7 +1281,11 @@ svg {
 	width: 100%;
 	height: 100%;
 	border: 0;
-	background: #fff;
+	background: var(--dst-bg);
+	color-scheme: dark;
+}
+
+.light .dst-chat-frame {
 	color-scheme: light;
 }
 
