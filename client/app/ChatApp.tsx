@@ -722,11 +722,16 @@ function ChatThreadView({
 						<p>直接输入问题开始聊天。</p>
 					</div>
 				) : (
-					thread.messages.map((message) => (
+					thread.messages.map((message, index) => (
 						<MessageBubble
 							key={message.id}
 							apiBase={apiBase}
 							message={message}
+							isStreaming={
+								message.role === "assistant" &&
+								(message.status?.type === "running" ||
+									(thread.isRunning && index === thread.messages.length - 1))
+							}
 							onToast={showToast}
 						/>
 					))
@@ -784,10 +789,12 @@ function ChatThreadView({
 
 function MessageBubble({
 	apiBase,
+	isStreaming,
 	message,
 	onToast,
 }: {
 	apiBase: string;
+	isStreaming: boolean;
 	message: ThreadMessage;
 	onToast: (message: string) => void;
 }) {
@@ -851,7 +858,7 @@ function MessageBubble({
 						<ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
 					)}
 				</div>
-				{!isUser ? (
+				{!isUser && !isStreaming ? (
 					<div className="ai-message-actions" aria-label="AI 回复操作">
 						<button type="button" onClick={copyReply} disabled={!text || Boolean(busyAction)}>
 							<Copy aria-hidden="true" />
