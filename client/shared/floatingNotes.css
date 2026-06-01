@@ -2299,6 +2299,28 @@ svg {
 	background: var(--dst-bg-3);
 }
 
+.markdown-editor-root .milkdown .ProseMirror img {
+	display: block;
+	max-width: min(100%, 720px);
+	height: auto;
+	margin: 10px 0;
+	border-radius: 6px;
+}
+
+.markdown-editor-root .milkdown .ProseMirror video {
+	display: block;
+	max-width: 100%;
+	margin: 10px 0;
+	border-radius: 6px;
+	background: #000;
+}
+
+.markdown-editor-root .milkdown .ProseMirror audio {
+	display: block;
+	width: min(100%, 520px);
+	margin: 10px 0;
+}
+
 .markdown-editor-root .milkdown .ProseMirror code {
 	background: var(--dst-bg-3);
 }

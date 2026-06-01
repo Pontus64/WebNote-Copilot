@@ -15,6 +15,19 @@ export type DraftNote = {
 	markdown: string;
 };
 
+export type NoteAsset = {
+	id: string;
+	noteId: string;
+	fileName: string;
+	mimeType: string;
+	byteSize: number;
+	assetKind: "image" | "video" | "audio" | "document" | "archive" | "file";
+	publicUrl: string;
+	markdown: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
 export type ChatMessage = {
 	id: string;
 	role: "user" | "assistant";

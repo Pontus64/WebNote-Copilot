@@ -58,6 +58,7 @@ import {
 	deleteNote,
 	listNotes,
 	updateNote,
+	uploadNoteAsset,
 } from "../shared/notesApi";
 
 type ChatAppProps = {
@@ -244,6 +245,18 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 						throw new Error("note id is required");
 					}
 					respond({ ok: true, data: await deleteNote(noteId, apiBase) });
+					return;
+				}
+				if (action === "uploadAsset") {
+					const noteId = typeof payload?.id === "string" ? payload.id : "";
+					const file = payload?.file;
+					if (!noteId) {
+						throw new Error("note id is required");
+					}
+					if (!(file instanceof File)) {
+						throw new Error("file is required");
+					}
+					respond({ ok: true, data: await uploadNoteAsset(noteId, file, apiBase) });
 					return;
 				}
 				throw new Error("unknown notes action");

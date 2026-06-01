@@ -133,6 +133,227 @@ describe("floating notes worker", () => {
 		expect(note.schemaVersion).toBe(2);
 	});
 
+	it("uploads, lists, and deletes note assets through R2", async () => {
+		const auth = await registerTestUser(mf, "assets@example.com");
+		const headers = authHeaders(auth.sessionToken);
+		const createResponse = await mf.dispatchFetch("http://example.com/api/notes", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ title: "带图笔记", markdown: "正文" }),
+		});
+		const note = await readJson<{ id: string }>(createResponse);
+
+		const uploadResponse = await mf.dispatchFetch(
+			`http://example.com/api/notes/${note.id}/assets`,
+			{
+				method: "POST",
+				headers: assetHeaders(auth.sessionToken, {
+					contentType: "image/png",
+					fileName: "screen shot.png",
+					fileSize: 3,
+				}),
+				body: "png",
+			}
+		);
+		const asset = await readJson<{
+			id: string;
+			noteId: string;
+			fileName: string;
+			mimeType: string;
+			byteSize: number;
+			assetKind: string;
+			publicUrl: string;
+			markdown: string;
+		}>(uploadResponse);
+
+		expect(uploadResponse.status).toBe(201);
+		expect(asset.noteId).toBe(note.id);
+		expect(asset.fileName).toBe("screen shot.png");
+		expect(asset.mimeType).toBe("image/png");
+		expect(asset.byteSize).toBe(3);
+		expect(asset.assetKind).toBe("image");
+		expect(asset.publicUrl).toContain("https://assets.example.test/users/");
+		expect(asset.markdown).toContain("![screen shot.png](https://assets.example.test/");
+
+		const row = await db
+			.prepare("SELECT r2_key, deleted_at FROM note_assets WHERE id = ?")
+			.bind(asset.id)
+			.first<{ r2_key: string; deleted_at: number | null }>();
+		expect(row?.deleted_at).toBeNull();
+
+		const r2 = await mf.getR2Bucket("NOTE_ASSETS");
+		await expect(r2.get(row!.r2_key).then((object) => object?.text())).resolves.toBe("png");
+
+		const contentResponse = await mf.dispatchFetch(
+			`http://example.com/api/notes/${note.id}/assets/${asset.id}/content`
+		);
+		expect(contentResponse.status).toBe(200);
+		expect(contentResponse.headers.get("Content-Type")).toContain("image/png");
+		await expect(contentResponse.text()).resolves.toBe("png");
+
+		const getResponse = await mf.dispatchFetch(`http://example.com/api/notes/${note.id}`, {
+			headers,
+		});
+		await expect(getResponse.json()).resolves.toEqual(
+			expect.objectContaining({ id: note.id, assetCount: 1 })
+		);
+
+		const listResponse = await mf.dispatchFetch(
+			`http://example.com/api/notes/${note.id}/assets`,
+			{ headers }
+		);
+		await expect(listResponse.json()).resolves.toEqual([
+			expect.objectContaining({ id: asset.id, assetKind: "image" }),
+		]);
+
+		const deleteResponse = await mf.dispatchFetch(
+			`http://example.com/api/notes/${note.id}/assets/${asset.id}`,
+			{
+				method: "DELETE",
+				headers,
+			}
+		);
+		await expect(deleteResponse.json()).resolves.toEqual({ success: true });
+		await expect(r2.get(row!.r2_key)).resolves.toBeNull();
+		const deletedRow = await db
+			.prepare("SELECT deleted_at FROM note_assets WHERE id = ?")
+			.bind(asset.id)
+			.first<{ deleted_at: number | null }>();
+		expect(deletedRow?.deleted_at).toEqual(expect.any(Number));
+	});
+
+	it("uses a same-origin asset content URL for local uploads", async () => {
+		const auth = await registerTestUser(mf, "local-assets@example.com");
+		const headers = authHeaders(auth.sessionToken);
+		const createResponse = await mf.dispatchFetch("http://127.0.0.1/api/notes", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ title: "本地图片", markdown: "" }),
+		});
+		const note = await readJson<{ id: string }>(createResponse);
+
+		const uploadResponse = await mf.dispatchFetch(
+			`http://127.0.0.1/api/notes/${note.id}/assets`,
+			{
+				method: "POST",
+				headers: assetHeaders(auth.sessionToken, {
+					contentType: "image/png",
+					fileName: "local.png",
+					fileSize: 3,
+				}),
+				body: "png",
+			}
+		);
+		const asset = await readJson<{ id: string; publicUrl: string; markdown: string }>(
+			uploadResponse
+		);
+
+		expect(asset.publicUrl).toBe(
+			`http://127.0.0.1/api/notes/${note.id}/assets/${asset.id}/content`
+		);
+		expect(asset.markdown).toContain(asset.publicUrl);
+		const contentResponse = await mf.dispatchFetch(asset.publicUrl);
+		expect(contentResponse.status).toBe(200);
+		await expect(contentResponse.text()).resolves.toBe("png");
+	});
+
+	it("validates note asset uploads", async () => {
+		const noAuthResponse = await mf.dispatchFetch("http://example.com/api/notes/missing/assets", {
+			method: "POST",
+			headers: { "Content-Type": "image/png", "X-File-Name": "x.png", "X-File-Size": "1" },
+			body: "x",
+		});
+		expect(noAuthResponse.status).toBe(401);
+
+		const auth = await registerTestUser(mf, "asset-validation@example.com");
+		const missingResponse = await mf.dispatchFetch(
+			"http://example.com/api/notes/missing-note/assets",
+			{
+				method: "POST",
+				headers: assetHeaders(auth.sessionToken, {
+					contentType: "image/png",
+					fileName: "x.png",
+					fileSize: 1,
+				}),
+				body: "x",
+			}
+		);
+		expect(missingResponse.status).toBe(404);
+
+		const createResponse = await mf.dispatchFetch("http://example.com/api/notes", {
+			method: "POST",
+			headers: authHeaders(auth.sessionToken),
+			body: JSON.stringify({ title: "校验", markdown: "" }),
+		});
+		const note = await readJson<{ id: string }>(createResponse);
+
+		const forbiddenTypeResponse = await mf.dispatchFetch(
+			`http://example.com/api/notes/${note.id}/assets`,
+			{
+				method: "POST",
+				headers: assetHeaders(auth.sessionToken, {
+					contentType: "image/svg+xml",
+					fileName: "bad.svg",
+					fileSize: 1,
+				}),
+				body: "x",
+			}
+		);
+		expect(forbiddenTypeResponse.status).toBe(400);
+
+		const oversizedResponse = await mf.dispatchFetch(
+			`http://example.com/api/notes/${note.id}/assets`,
+			{
+				method: "POST",
+				headers: assetHeaders(auth.sessionToken, {
+					contentType: "text/plain",
+					fileName: "big.txt",
+					fileSize: 80 * 1024 * 1024 + 1,
+				}),
+				body: "x",
+			}
+		);
+		expect(oversizedResponse.status).toBe(413);
+	});
+
+	it("deletes note R2 objects when deleting a note", async () => {
+		const auth = await registerTestUser(mf, "asset-note-delete@example.com");
+		const headers = authHeaders(auth.sessionToken);
+		const createResponse = await mf.dispatchFetch("http://example.com/api/notes", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ title: "待删除", markdown: "" }),
+		});
+		const note = await readJson<{ id: string }>(createResponse);
+
+		const uploadResponse = await mf.dispatchFetch(
+			`http://example.com/api/notes/${note.id}/assets`,
+			{
+				method: "POST",
+				headers: assetHeaders(auth.sessionToken, {
+					contentType: "text/plain",
+					fileName: "a.txt",
+					fileSize: 1,
+				}),
+				body: "a",
+			}
+		);
+		const asset = await readJson<{ id: string }>(uploadResponse);
+		const row = await db
+			.prepare("SELECT r2_key FROM note_assets WHERE id = ?")
+			.bind(asset.id)
+			.first<{ r2_key: string }>();
+		const r2 = await mf.getR2Bucket("NOTE_ASSETS");
+		await expect(r2.get(row!.r2_key)).resolves.not.toBeNull();
+
+		const deleteResponse = await mf.dispatchFetch(`http://example.com/api/notes/${note.id}`, {
+			method: "DELETE",
+			headers,
+		});
+		await expect(deleteResponse.json()).resolves.toEqual({ success: true });
+		await expect(r2.get(row!.r2_key)).resolves.toBeNull();
+	});
+
 	it("creates chat threads and lists messages", async () => {
 		const auth = await registerTestUser(mf, "chat@example.com");
 		const headers = authHeaders(auth.sessionToken);
@@ -234,6 +455,18 @@ function authHeaders(sessionToken: string): Record<string, string> {
 	};
 }
 
+function assetHeaders(
+	sessionToken: string,
+	options: { contentType: string; fileName: string; fileSize: number }
+): Record<string, string> {
+	return {
+		"Content-Type": options.contentType,
+		"Authorization": `Bearer ${sessionToken}`,
+		"X-File-Name": options.fileName,
+		"X-File-Size": String(options.fileSize),
+	};
+}
+
 async function readJson<T>(response: JsonResponse): Promise<T> {
 	return (await response.json()) as T;
 }
@@ -250,9 +483,11 @@ function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 			DEEPSEEK_BASE_URL: "https://api.deepseek.com",
 			DEEPSEEK_MODEL: "deepseek-v4-flash",
 			DEEPSEEK_API_KEY: deepSeekApiKey,
+			NOTE_ASSETS_PUBLIC_BASE_URL: "https://assets.example.test",
 			...(options.bindings ?? {}),
 		},
 		d1Databases: ["wranglerdemo"],
+		r2Buckets: ["NOTE_ASSETS"],
 		assets: {
 			directory: "./public",
 			binding: "ASSETS",

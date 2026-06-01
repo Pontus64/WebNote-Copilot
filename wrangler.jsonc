@@ -31,7 +31,8 @@
 	},
 	"vars": {
 		"DEEPSEEK_BASE_URL": "https://api.deepseek.com",
-		"DEEPSEEK_MODEL": "deepseek-v4-flash"
+		"DEEPSEEK_MODEL": "deepseek-v4-flash",
+		"NOTE_ASSETS_PUBLIC_BASE_URL": "https://assets.notes.edmund.xin"
 	},
 	"observability": {
 		"enabled": true
@@ -43,6 +44,12 @@
 			"database_name": "wranglerdemo",
 			"database_id": "80e3b35f-0fd8-457e-add2-530831fa5ca9",
 			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "NOTE_ASSETS",
+			"bucket_name": "y-note-assets"
 		}
 	]
 	/**

@@ -38,7 +38,7 @@ import {
 import { redo, undo } from "@milkdown/kit/prose/history";
 import { TextSelection, type Command } from "@milkdown/kit/prose/state";
 import { uploadConfig } from "@milkdown/kit/plugin/upload";
-import { $markAttr, $markSchema } from "@milkdown/kit/utils";
+import { $markAttr, $markSchema, insert, replaceAll } from "@milkdown/kit/utils";
 import {
 	type ClipboardEvent as ReactClipboardEvent,
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -91,6 +91,8 @@ const underlineSchema = $markSchema("underline", (ctx) => ({
 export type MarkdownNoteEditorHandle = {
 	getMarkdown: () => string;
 	focus: () => void;
+	insertMarkdown: (markdown: string) => string;
+	replaceMarkdown: (from: string, to: string) => string;
 };
 
 type MarkdownNoteEditorProps = {
@@ -98,14 +100,14 @@ type MarkdownNoteEditorProps = {
 	onChange: (markdown: string) => void;
 	onReady?: (markdown: string) => void;
 	onSave: (markdown: string) => void;
-	onUnsupportedImagePaste: () => void;
+	onPasteFiles: (files: File[]) => void;
 };
 
 export const MarkdownNoteEditor = forwardRef<
 	MarkdownNoteEditorHandle,
 	MarkdownNoteEditorProps
 >(function MarkdownNoteEditor(
-	{ value, onChange, onReady, onSave, onUnsupportedImagePaste },
+	{ value, onChange, onReady, onSave, onPasteFiles },
 	ref
 ) {
 	const rootRef = useRef<HTMLDivElement | null>(null);
@@ -114,7 +116,7 @@ export const MarkdownNoteEditor = forwardRef<
 	const onChangeRef = useRef(onChange);
 	const onReadyRef = useRef(onReady);
 	const onSaveRef = useRef(onSave);
-	const onUnsupportedImagePasteRef = useRef(onUnsupportedImagePaste);
+	const onPasteFilesRef = useRef(onPasteFiles);
 
 	useEffect(() => {
 		latestValueRef.current = value;
@@ -124,8 +126,8 @@ export const MarkdownNoteEditor = forwardRef<
 		onChangeRef.current = onChange;
 		onReadyRef.current = onReady;
 		onSaveRef.current = onSave;
-		onUnsupportedImagePasteRef.current = onUnsupportedImagePaste;
-	}, [onChange, onReady, onSave, onUnsupportedImagePaste]);
+		onPasteFilesRef.current = onPasteFiles;
+	}, [onChange, onReady, onSave, onPasteFiles]);
 
 	useImperativeHandle(
 		ref,
@@ -135,6 +137,27 @@ export const MarkdownNoteEditor = forwardRef<
 			},
 			focus() {
 				rootRef.current?.querySelector<HTMLElement>("[contenteditable='true']")?.focus();
+			},
+			insertMarkdown(markdown: string) {
+				const nextMarkdown = insertMarkdownAtSelection(
+					crepeRef.current,
+					markdown,
+					latestValueRef.current
+				);
+				latestValueRef.current = nextMarkdown;
+				onChangeRef.current(nextMarkdown);
+				return nextMarkdown;
+			},
+			replaceMarkdown(from: string, to: string) {
+				const nextMarkdown = replaceMarkdownText(
+					crepeRef.current,
+					latestValueRef.current,
+					from,
+					to
+				);
+				latestValueRef.current = nextMarkdown;
+				onChangeRef.current(nextMarkdown);
+				return nextMarkdown;
 			},
 		}),
 		[]
@@ -382,14 +405,13 @@ export const MarkdownNoteEditor = forwardRef<
 	};
 
 	const handlePasteCapture = (event: ReactClipboardEvent<HTMLDivElement>) => {
-		if (!hasImageClipboardItem(event.clipboardData)) {
+		const files = getClipboardFiles(event.clipboardData);
+		if (!files.length) {
 			return;
 		}
 		event.preventDefault();
 		event.stopPropagation();
-		// TODO(next): upload pasted image to R2, persist note_assets metadata,
-		// and insert the returned Markdown image URL at the current cursor position.
-		onUnsupportedImagePasteRef.current();
+		onPasteFilesRef.current(files);
 	};
 
 	return (
@@ -411,6 +433,41 @@ function readMarkdown(crepe: Crepe | null, fallback: string) {
 		return crepe.getMarkdown();
 	} catch {
 		return fallback;
+	}
+}
+
+function insertMarkdownAtSelection(crepe: Crepe | null, markdown: string, fallback: string) {
+	if (!crepe) {
+		return fallback ? `${fallback}\n\n${markdown}` : markdown;
+	}
+	try {
+		crepe.editor.action(insert(markdown));
+		return readMarkdown(crepe, fallback);
+	} catch (error) {
+		console.error("[FloatingNotes] Milkdown insert failed", error);
+		return fallback;
+	}
+}
+
+function replaceMarkdownText(
+	crepe: Crepe | null,
+	fallback: string,
+	from: string,
+	to: string
+) {
+	if (!from || !fallback.includes(from)) {
+		return readMarkdown(crepe, fallback);
+	}
+	const nextMarkdown = fallback.split(from).join(to);
+	if (!crepe) {
+		return nextMarkdown;
+	}
+	try {
+		crepe.editor.action(replaceAll(nextMarkdown));
+		return readMarkdown(crepe, nextMarkdown);
+	} catch (error) {
+		console.error("[FloatingNotes] Milkdown replace failed", error);
+		return nextMarkdown;
 	}
 }
 
@@ -736,8 +793,13 @@ function markToolbarSeparator(element: Element) {
 	element.removeAttribute("aria-label");
 }
 
-function hasImageClipboardItem(data: DataTransfer) {
-	return Array.from(data.items).some(
-		(item) => item.kind === "file" && item.type.toLowerCase().startsWith("image/")
-	);
+function getClipboardFiles(data: DataTransfer) {
+	const fromFiles = Array.from(data.files);
+	if (fromFiles.length) {
+		return fromFiles;
+	}
+	return Array.from(data.items)
+		.filter((item) => item.kind === "file")
+		.map((item) => item.getAsFile())
+		.filter((file): file is File => Boolean(file));
 }

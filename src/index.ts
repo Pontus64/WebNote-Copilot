@@ -21,6 +21,36 @@ type NoteRow = {
 	updated_at: number;
 };
 
+type AssetKind = "image" | "video" | "audio" | "document" | "archive" | "file";
+
+type NoteAsset = {
+	id: string;
+	noteId: string;
+	fileName: string;
+	mimeType: string;
+	byteSize: number;
+	assetKind: AssetKind;
+	publicUrl: string;
+	markdown: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
+type NoteAssetRow = {
+	id: string;
+	note_id: string;
+	user_id: string;
+	r2_key: string;
+	public_url: string;
+	file_name: string;
+	mime_type: string;
+	byte_size: number;
+	asset_kind: string;
+	created_at: number;
+	updated_at: number;
+	deleted_at: number | null;
+};
+
 type User = {
 	id: string;
 	email: string;
@@ -84,17 +114,35 @@ type EnvWithBindings = Env & {
 	DEEPSEEK_API_KEY?: string;
 	DEEPSEEK_BASE_URL?: string;
 	DEEPSEEK_MODEL?: string;
+	NOTE_ASSETS?: R2Bucket;
+	NOTE_ASSETS_PUBLIC_BASE_URL?: string;
 	SESSION_COOKIE_NAME?: string;
 };
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_ITERATIONS = 100_000;
 const SESSION_COOKIE_FALLBACK = "fn_session";
+const MAX_ASSET_UPLOAD_BYTES = 80 * 1024 * 1024;
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
 const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
 const encoder = new TextEncoder();
+
+const ALLOWED_ASSET_MIME_TYPES = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/webp",
+	"image/gif",
+	"video/mp4",
+	"video/webm",
+	"audio/mpeg",
+	"audio/wav",
+	"application/pdf",
+	"text/plain",
+	"text/markdown",
+	"application/zip",
+]);
 
 class ApiError extends Error {
 	readonly isApiError = true;
@@ -268,12 +316,23 @@ async function handleNotesRequest(
 	env: EnvWithBindings,
 	url: URL
 ): Promise<Response> {
-	const auth = await requireAuth(request, env);
 	const path = url.pathname.startsWith("/api/notes")
 		? url.pathname.replace(/^\/api\/notes\/?/, "")
 		: url.pathname.replace(/^\/notes\/?/, "");
-	const noteId = decodeURIComponent(path);
+	const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
+	const noteId = parts[0] ?? "";
 	const isCollection = url.pathname === "/api/notes" || url.pathname === "/notes";
+
+	if (
+		parts.length === 4 &&
+		parts[1] === "assets" &&
+		parts[3] === "content" &&
+		request.method === "GET"
+	) {
+		return serveNoteAssetContent(env, noteId, parts[2], request);
+	}
+
+	const auth = await requireAuth(request, env);
 
 	if (isCollection && request.method === "GET") {
 		return json(await listNotes(env.wranglerdemo, auth.user.id), 200, request);
@@ -283,16 +342,28 @@ async function handleNotesRequest(
 		return createNote(request, env.wranglerdemo, auth.user.id);
 	}
 
-	if (noteId && request.method === "GET") {
+	if (parts.length === 2 && parts[1] === "assets" && request.method === "GET") {
+		return listNoteAssets(env.wranglerdemo, auth.user.id, noteId, request);
+	}
+
+	if (parts.length === 2 && parts[1] === "assets" && request.method === "POST") {
+		return uploadNoteAsset(request, env, auth.user.id, noteId);
+	}
+
+	if (parts.length === 3 && parts[1] === "assets" && request.method === "DELETE") {
+		return deleteNoteAsset(env, auth.user.id, noteId, parts[2], request);
+	}
+
+	if (parts.length === 1 && noteId && request.method === "GET") {
 		return getNote(env.wranglerdemo, auth.user.id, noteId, request);
 	}
 
-	if (noteId && request.method === "PUT") {
+	if (parts.length === 1 && noteId && request.method === "PUT") {
 		return updateNote(request, env.wranglerdemo, auth.user.id, noteId);
 	}
 
-	if (noteId && request.method === "DELETE") {
-		return deleteNote(env.wranglerdemo, auth.user.id, noteId, request);
+	if (parts.length === 1 && noteId && request.method === "DELETE") {
+		return deleteNote(env, auth.user.id, noteId, request);
 	}
 
 	throw new ApiError(405, "method not allowed");
@@ -371,10 +442,29 @@ async function handleChatRequest(
 async function listNotes(db: D1Database, userId: string): Promise<Note[]> {
 	const { results } = await db
 		.prepare(
-			`SELECT id, title, markdown, excerpt, schema_version, 0 AS asset_count, created_at, updated_at
+			`SELECT
+				notes.id,
+				notes.title,
+				notes.markdown,
+				notes.excerpt,
+				notes.schema_version,
+				COUNT(note_assets.id) AS asset_count,
+				notes.created_at,
+				notes.updated_at
 			 FROM notes
-			 WHERE user_id = ?
-			 ORDER BY updated_at DESC, created_at DESC`
+			 LEFT JOIN note_assets
+				ON note_assets.note_id = notes.id
+				AND note_assets.deleted_at IS NULL
+			 WHERE notes.user_id = ?
+			 GROUP BY
+				notes.id,
+				notes.title,
+				notes.markdown,
+				notes.excerpt,
+				notes.schema_version,
+				notes.created_at,
+				notes.updated_at
+			 ORDER BY notes.updated_at DESC, notes.created_at DESC`
 		)
 		.bind(userId)
 		.all<NoteRow>();
@@ -471,13 +561,221 @@ async function updateNote(
 	return json(updated, 200, request);
 }
 
-async function deleteNote(
+async function listNoteAssets(
 	db: D1Database,
+	userId: string,
+	noteId: string,
+	request: Request
+): Promise<Response> {
+	const note = await findNote(db, userId, noteId);
+	if (!note) {
+		throw new ApiError(404, "note not found");
+	}
+
+	const { results } = await db
+		.prepare(
+			`SELECT id, note_id, user_id, r2_key, public_url, file_name, mime_type, byte_size, asset_kind, created_at, updated_at, deleted_at
+			 FROM note_assets
+			 WHERE note_id = ? AND user_id = ? AND deleted_at IS NULL
+			 ORDER BY created_at ASC`
+		)
+		.bind(noteId, userId)
+		.all<NoteAssetRow>();
+
+	return json(results.map(noteAssetFromRow), 200, request);
+}
+
+async function uploadNoteAsset(
+	request: Request,
+	env: EnvWithBindings,
+	userId: string,
+	noteId: string
+): Promise<Response> {
+	if (!env.NOTE_ASSETS) {
+		throw new ApiError(503, "asset storage is not configured");
+	}
+	const note = await findNote(env.wranglerdemo, userId, noteId);
+	if (!note) {
+		throw new ApiError(404, "note not found");
+	}
+	if (!request.body) {
+		throw new ApiError(400, "file body is required");
+	}
+
+	const mimeType = normalizeAssetMimeType(request.headers.get("Content-Type"));
+	if (!ALLOWED_ASSET_MIME_TYPES.has(mimeType)) {
+		throw new ApiError(400, "unsupported file type");
+	}
+	const byteSize = parseAssetByteSize(request);
+	if (byteSize <= 0) {
+		throw new ApiError(400, "file size is required");
+	}
+	if (byteSize > MAX_ASSET_UPLOAD_BYTES) {
+		throw new ApiError(413, "file too large");
+	}
+
+	const now = Date.now();
+	const assetId = crypto.randomUUID();
+	const fileName = normalizeFileName(request.headers.get("X-File-Name"));
+	const r2Key = `users/${userId}/notes/${noteId}/${assetId}-${safeFileName(fileName)}`;
+	const publicUrl = publicUrlForUploadedAsset(env, request, noteId, assetId, r2Key);
+	const assetKind = assetKindFromMimeType(mimeType);
+
+	try {
+		const uploadStream = new FixedLengthStream(byteSize);
+		const pipePromise = request.body.pipeTo(uploadStream.writable);
+		await Promise.all([
+			env.NOTE_ASSETS.put(r2Key, uploadStream.readable, {
+				httpMetadata: {
+					contentType: mimeType,
+					cacheControl: "public, max-age=31536000, immutable",
+				},
+				customMetadata: {
+					noteId,
+					userId,
+					fileName,
+				},
+			}),
+			pipePromise,
+		]);
+	} catch (error) {
+		console.error(
+			JSON.stringify({
+				message: "r2 asset upload failed",
+				error: error instanceof Error ? error.message : String(error),
+			})
+		);
+		throw new ApiError(503, "asset storage unavailable");
+	}
+
+	try {
+		await env.wranglerdemo
+			.prepare(
+				`INSERT INTO note_assets
+					(id, note_id, user_id, r2_key, public_url, file_name, mime_type, byte_size, asset_kind, created_at, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.bind(
+				assetId,
+				noteId,
+				userId,
+				r2Key,
+				publicUrl,
+				fileName,
+				mimeType,
+				byteSize,
+				assetKind,
+				now,
+				now
+			)
+			.run();
+	} catch (error) {
+		await deleteR2Keys(env, [r2Key]);
+		throw error;
+	}
+
+	return json(
+		{
+			id: assetId,
+			noteId,
+			fileName,
+			mimeType,
+			byteSize,
+			assetKind,
+			publicUrl,
+			markdown: markdownForAsset(fileName, assetKind, publicUrl),
+			createdAt: now,
+			updatedAt: now,
+		} satisfies NoteAsset,
+		201,
+		request
+	);
+}
+
+async function deleteNoteAsset(
+	env: EnvWithBindings,
+	userId: string,
+	noteId: string,
+	assetId: string,
+	request: Request
+): Promise<Response> {
+	const row = await env.wranglerdemo
+		.prepare(
+			`SELECT id, note_id, user_id, r2_key, public_url, file_name, mime_type, byte_size, asset_kind, created_at, updated_at, deleted_at
+			 FROM note_assets
+			 WHERE id = ? AND note_id = ? AND user_id = ? AND deleted_at IS NULL`
+		)
+		.bind(assetId, noteId, userId)
+		.first<NoteAssetRow>();
+
+	if (!row) {
+		throw new ApiError(404, "asset not found");
+	}
+
+	const now = Date.now();
+	await env.wranglerdemo
+		.prepare("UPDATE note_assets SET deleted_at = ?, updated_at = ? WHERE id = ?")
+		.bind(now, now, assetId)
+		.run();
+	await deleteR2Keys(env, [row.r2_key]);
+	return json({ success: true }, 200, request);
+}
+
+async function serveNoteAssetContent(
+	env: EnvWithBindings,
+	noteId: string,
+	assetId: string,
+	request: Request
+): Promise<Response> {
+	if (!env.NOTE_ASSETS) {
+		throw new ApiError(503, "asset storage is not configured");
+	}
+
+	const row = await env.wranglerdemo
+		.prepare(
+			`SELECT id, note_id, user_id, r2_key, public_url, file_name, mime_type, byte_size, asset_kind, created_at, updated_at, deleted_at
+			 FROM note_assets
+			 WHERE id = ? AND note_id = ? AND deleted_at IS NULL`
+		)
+		.bind(assetId, noteId)
+		.first<NoteAssetRow>();
+
+	if (!row) {
+		throw new ApiError(404, "asset not found");
+	}
+
+	const object = await env.NOTE_ASSETS.get(row.r2_key);
+	if (!object) {
+		throw new ApiError(404, "asset content not found");
+	}
+
+	const headers = new Headers(corsHeaders(request));
+	object.writeHttpMetadata(headers);
+	if (!headers.has("Content-Type")) {
+		headers.set("Content-Type", row.mime_type);
+	}
+	headers.set("Content-Length", String(row.byte_size));
+	headers.set("Cache-Control", "public, max-age=31536000, immutable");
+	headers.set("Content-Disposition", `inline; filename="${contentDispositionFileName(row.file_name)}"`);
+	return new Response(object.body, { status: 200, headers });
+}
+
+async function deleteNote(
+	env: EnvWithBindings,
 	userId: string,
 	id: string,
 	request: Request
 ): Promise<Response> {
-	const result = await db
+	const { results } = await env.wranglerdemo
+		.prepare(
+			`SELECT r2_key
+			 FROM note_assets
+			 WHERE note_id = ? AND user_id = ? AND deleted_at IS NULL`
+		)
+		.bind(id, userId)
+		.all<{ r2_key: string }>();
+
+	const result = await env.wranglerdemo
 		.prepare("DELETE FROM notes WHERE id = ? AND user_id = ?")
 		.bind(id, userId)
 		.run();
@@ -486,15 +784,35 @@ async function deleteNote(
 		throw new ApiError(404, "note not found");
 	}
 
+	await deleteR2Keys(env, results.map((row) => row.r2_key));
 	return json({ success: true }, 200, request);
 }
 
 async function findNote(db: D1Database, userId: string, id: string): Promise<Note | null> {
 	const row = await db
 		.prepare(
-			`SELECT id, title, markdown, excerpt, schema_version, 0 AS asset_count, created_at, updated_at
+			`SELECT
+				notes.id,
+				notes.title,
+				notes.markdown,
+				notes.excerpt,
+				notes.schema_version,
+				COUNT(note_assets.id) AS asset_count,
+				notes.created_at,
+				notes.updated_at
 			 FROM notes
-			 WHERE id = ? AND user_id = ?`
+			 LEFT JOIN note_assets
+				ON note_assets.note_id = notes.id
+				AND note_assets.deleted_at IS NULL
+			 WHERE notes.id = ? AND notes.user_id = ?
+			 GROUP BY
+				notes.id,
+				notes.title,
+				notes.markdown,
+				notes.excerpt,
+				notes.schema_version,
+				notes.created_at,
+				notes.updated_at`
 		)
 		.bind(id, userId)
 		.first<NoteRow>();
@@ -1004,6 +1322,159 @@ function noteFromRow(row: NoteRow): Note {
 	};
 }
 
+function noteAssetFromRow(row: NoteAssetRow): NoteAsset {
+	const assetKind = normalizeAssetKind(row.asset_kind);
+	return {
+		id: row.id,
+		noteId: row.note_id,
+		fileName: row.file_name,
+		mimeType: row.mime_type,
+		byteSize: row.byte_size,
+		assetKind,
+		publicUrl: row.public_url,
+		markdown: markdownForAsset(row.file_name, assetKind, row.public_url),
+		createdAt: row.created_at,
+		updatedAt: row.updated_at,
+	};
+}
+
+function normalizeAssetKind(value: string): AssetKind {
+	if (
+		value === "image" ||
+		value === "video" ||
+		value === "audio" ||
+		value === "document" ||
+		value === "archive" ||
+		value === "file"
+	) {
+		return value;
+	}
+	return "file";
+}
+
+function assetKindFromMimeType(mimeType: string): AssetKind {
+	if (mimeType.startsWith("image/")) {
+		return "image";
+	}
+	if (mimeType.startsWith("video/")) {
+		return "video";
+	}
+	if (mimeType.startsWith("audio/")) {
+		return "audio";
+	}
+	if (mimeType === "application/pdf" || mimeType === "text/plain" || mimeType === "text/markdown") {
+		return "document";
+	}
+	if (mimeType === "application/zip") {
+		return "archive";
+	}
+	return "file";
+}
+
+function markdownForAsset(fileName: string, assetKind: AssetKind, publicUrl: string): string {
+	const label = escapeMarkdownLabel(fileName || "pasted-file");
+	if (assetKind === "image") {
+		return `![${label}](${publicUrl})`;
+	}
+	if (assetKind === "video") {
+		return `<video controls src="${escapeHtmlAttribute(publicUrl)}"></video>`;
+	}
+	if (assetKind === "audio") {
+		return `<audio controls src="${escapeHtmlAttribute(publicUrl)}"></audio>`;
+	}
+	return `[${label}](${publicUrl})`;
+}
+
+function normalizeAssetMimeType(value: string | null): string {
+	return (value || "application/octet-stream").split(";")[0].trim().toLowerCase();
+}
+
+function parseAssetByteSize(request: Request): number {
+	const raw = request.headers.get("X-File-Size") || request.headers.get("Content-Length") || "";
+	const value = Number.parseInt(raw, 10);
+	return Number.isFinite(value) ? value : 0;
+}
+
+function normalizeFileName(value: string | null): string {
+	const withoutPath = (value || "pasted-file").split(/[\\/]/).pop() || "pasted-file";
+	const normalized = withoutPath.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+	return Array.from(normalized || "pasted-file").slice(0, 180).join("");
+}
+
+function safeFileName(value: string): string {
+	const safe = value
+		.normalize("NFKD")
+		.replace(/[^a-zA-Z0-9._-]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 90);
+	return safe || "file";
+}
+
+function publicUrlForUploadedAsset(
+	env: EnvWithBindings,
+	request: Request,
+	noteId: string,
+	assetId: string,
+	r2Key: string
+): string {
+	if (isLocalAssetRequest(request)) {
+		return workerAssetContentUrl(request, noteId, assetId);
+	}
+	const publicBaseUrl = (env.NOTE_ASSETS_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+	if (publicBaseUrl) {
+		return publicUrlForR2Key(publicBaseUrl, r2Key);
+	}
+	return workerAssetContentUrl(request, noteId, assetId);
+}
+
+function publicUrlForR2Key(baseUrl: string, r2Key: string): string {
+	return `${baseUrl}/${r2Key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function workerAssetContentUrl(request: Request, noteId: string, assetId: string): string {
+	return new URL(
+		`/api/notes/${encodeURIComponent(noteId)}/assets/${encodeURIComponent(assetId)}/content`,
+		request.url
+	).href;
+}
+
+function isLocalAssetRequest(request: Request): boolean {
+	const hostname = new URL(request.url).hostname;
+	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+async function deleteR2Keys(env: EnvWithBindings, keys: string[]) {
+	if (!env.NOTE_ASSETS || !keys.length) {
+		return;
+	}
+	try {
+		await env.NOTE_ASSETS.delete(keys);
+	} catch (error) {
+		console.error(
+			JSON.stringify({
+				message: "r2 asset delete failed",
+				error: error instanceof Error ? error.message : String(error),
+			})
+		);
+	}
+}
+
+function escapeMarkdownLabel(value: string) {
+	return value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+}
+
+function escapeHtmlAttribute(value: string) {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+function contentDispositionFileName(value: string) {
+	return safeFileName(value).replace(/"/g, "");
+}
+
 function makeMarkdownExcerpt(markdown: string): string {
 	const normalized = markdown
 		.replace(/```[\s\S]*?```/g, " ")
@@ -1175,7 +1646,7 @@ function corsHeaders(request: Request): HeadersInit {
 	return {
 		"Access-Control-Allow-Origin": origin || "*",
 		"Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-		"Access-Control-Allow-Headers": "Content-Type, Authorization",
+		"Access-Control-Allow-Headers": "Content-Type, Authorization, X-File-Name, X-File-Size",
 		"Access-Control-Allow-Credentials": "true",
 		"Vary": "Origin",
 	};

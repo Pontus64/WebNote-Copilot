@@ -23,12 +23,13 @@ import {
 	deleteNote as deleteBackendNote,
 	listNotes as listBackendNotes,
 	updateNote as updateBackendNote,
+	uploadNoteAsset as uploadBackendNoteAsset,
 } from "./notesApi";
 import {
 	MarkdownNoteEditor,
 	type MarkdownNoteEditorHandle,
 } from "./MarkdownNoteEditor";
-import type { DraftNote, Note, SelectionToolbar } from "./types";
+import type { DraftNote, Note, NoteAsset, SelectionToolbar } from "./types";
 
 type Page = "chat" | "notes";
 export type FloatingNotesCoreHandle = {
@@ -68,7 +69,8 @@ type NoteBridgeRequest =
 	| { action: "list"; payload?: undefined }
 	| { action: "create"; payload: { note: DraftNote } }
 	| { action: "update"; payload: { id: string; note: DraftNote } }
-	| { action: "delete"; payload: { id: string } };
+	| { action: "delete"; payload: { id: string } }
+	| { action: "uploadAsset"; payload: { id: string; file: File } };
 
 type PendingBridgeRequest = {
 	resolve: (value: unknown) => void;
@@ -99,6 +101,53 @@ function noteLoadErrorMessage(error: unknown) {
 		return "AI 聊天页加载中，请稍后重试";
 	}
 	return "笔记加载失败，请确认后端服务已启动";
+}
+
+const MAX_PASTE_FILE_COUNT = 5;
+
+function makePastedAssetMarkdown(file: File, url: string) {
+	const name = escapeMarkdownLabel(file.name || "pasted-file");
+	const mimeType = (file.type || "").toLowerCase();
+	if (mimeType.startsWith("image/")) {
+		return `![${name}](${url})`;
+	}
+	if (mimeType.startsWith("video/")) {
+		return `<video controls src="${escapeHtmlAttribute(url)}"></video>`;
+	}
+	if (mimeType.startsWith("audio/")) {
+		return `<audio controls src="${escapeHtmlAttribute(url)}"></audio>`;
+	}
+	return `[${name}](${url})`;
+}
+
+function containsPendingAssetReference(markdown: string) {
+	return /\bblob:|__uploading_asset_/.test(markdown);
+}
+
+function escapeMarkdownLabel(value: string) {
+	return value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+}
+
+function escapeHtmlAttribute(value: string) {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+function assetUploadErrorMessage(error: unknown) {
+	const message = error instanceof Error ? error.message : String(error || "");
+	if (/413|too large|file too large|exceeds/i.test(message)) {
+		return "附件太大";
+	}
+	if (/unsupported|mime|content type|file type/i.test(message)) {
+		return "文件类型暂不支持";
+	}
+	if (/unauthorized/i.test(message)) {
+		return "请先登录后上传附件";
+	}
+	return "附件上传失败";
 }
 
 async function copyText(text: string) {
@@ -322,6 +371,10 @@ function FloatingNotesCore(
 	const pendingBridgeRequestsRef = useRef<Map<number, PendingBridgeRequest>>(new Map());
 	const bridgeStatusRef = useRef<BridgeStatus>("pending");
 	const pendingBridgeReadyRef = useRef<Set<PendingBridgeReady>>(new Set());
+	const currentNoteIdRef = useRef<string | null>(null);
+	const detailTitleRef = useRef("");
+	const pendingAssetUploadsRef = useRef<Set<Promise<void>>>(new Set());
+	const ensureUploadNotePromiseRef = useRef<Promise<string> | null>(null);
 	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
 
 	const hasUnsavedDetail =
@@ -334,6 +387,14 @@ function FloatingNotesCore(
 		setToast(message);
 		toastTimerRef.current = window.setTimeout(() => setToast(""), 900);
 	}, []);
+
+	useEffect(() => {
+		currentNoteIdRef.current = currentNoteId;
+	}, [currentNoteId]);
+
+	useEffect(() => {
+		detailTitleRef.current = detailTitle;
+	}, [detailTitle]);
 
 	const useNotesBridge = useCallback(() => {
 		try {
@@ -453,6 +514,19 @@ function FloatingNotesCore(
 				return requestNotesBridge<{ success: true }>({ action: "delete", payload: { id } });
 			}
 			return deleteBackendNote(id, apiBase);
+		},
+		[apiBase, requestNotesBridge, useNotesBridge]
+	);
+
+	const uploadCurrentNoteAsset = useCallback(
+		async (id: string, file: File): Promise<NoteAsset> => {
+			if (useNotesBridge()) {
+				return requestNotesBridge<NoteAsset>({
+					action: "uploadAsset",
+					payload: { id, file },
+				});
+			}
+			return uploadBackendNoteAsset(id, file, apiBase);
 		},
 		[apiBase, requestNotesBridge, useNotesBridge]
 	);
@@ -872,10 +946,128 @@ function FloatingNotesCore(
 		event.stopPropagation();
 	};
 
+	const ensureCurrentNoteForUpload = useCallback(
+		async (markdownSnapshot: string) => {
+			const existingId = currentNoteIdRef.current;
+			if (existingId) {
+				return existingId;
+			}
+			if (ensureUploadNotePromiseRef.current) {
+				return ensureUploadNotePromiseRef.current;
+			}
+
+			const titleForUpload = detailTitleRef.current.trim() || "未命名笔记";
+			if (!detailTitleRef.current.trim()) {
+				detailTitleRef.current = titleForUpload;
+				setDetailTitle(titleForUpload);
+			}
+
+			const promise = createCurrentNote({ title: titleForUpload, markdown: markdownSnapshot })
+				.then((created) => {
+					const title = created.title || titleForUpload;
+					currentNoteIdRef.current = created.id;
+					detailTitleRef.current = title;
+					setCurrentNoteId(created.id);
+					setDetailTitle(title);
+					setSavedDetailTitle(title);
+					setSavedDetailMarkdown(markdownSnapshot);
+					setNotes((current) => [created, ...current.filter((note) => note.id !== created.id)]);
+					setNotesState("");
+					return created.id;
+				})
+				.finally(() => {
+					ensureUploadNotePromiseRef.current = null;
+				});
+			ensureUploadNotePromiseRef.current = promise;
+			return promise;
+		},
+		[createCurrentNote]
+	);
+
+	const waitForPendingAssetUploads = useCallback(async () => {
+		const pendingUploads = Array.from(pendingAssetUploadsRef.current);
+		if (!pendingUploads.length) {
+			return;
+		}
+		showToast("附件上传中");
+		await Promise.allSettled(pendingUploads);
+	}, [showToast]);
+
+	const uploadPastedFile = useCallback(
+		async (file: File, tempUrl: string, markdownBeforePaste: string) => {
+			try {
+				const noteId = await ensureCurrentNoteForUpload(markdownBeforePaste);
+				const asset = await uploadCurrentNoteAsset(noteId, file);
+				const editor = markdownEditorRef.current;
+				const currentMarkdown = editor?.getMarkdown() ?? detailMarkdown;
+				const nextMarkdown = editor
+					? editor.replaceMarkdown(tempUrl, asset.publicUrl)
+					: currentMarkdown.split(tempUrl).join(asset.publicUrl);
+				setDetailMarkdown(nextMarkdown);
+				window.URL.revokeObjectURL(tempUrl);
+
+				if (containsPendingAssetReference(nextMarkdown)) {
+					return;
+				}
+
+				const titleForSave = detailTitleRef.current.trim() || "未命名笔记";
+				if (!detailTitleRef.current.trim()) {
+					detailTitleRef.current = titleForSave;
+					setDetailTitle(titleForSave);
+				}
+				await updateCurrentNote(noteId, { title: titleForSave, markdown: nextMarkdown });
+				setSavedDetailTitle(titleForSave);
+				setSavedDetailMarkdown(nextMarkdown);
+				await fetchNotes();
+				showToast("附件已上传");
+			} catch (error) {
+				console.error(error);
+				showToast(assetUploadErrorMessage(error));
+			}
+		},
+		[
+			detailMarkdown,
+			ensureCurrentNoteForUpload,
+			fetchNotes,
+			showToast,
+			updateCurrentNote,
+			uploadCurrentNoteAsset,
+		]
+	);
+
+	const handlePasteFiles = useCallback(
+		(files: File[]) => {
+			const editor = markdownEditorRef.current;
+			if (!editor) {
+				showToast("编辑器尚未准备好");
+				return;
+			}
+
+			const selectedFiles = files.slice(0, MAX_PASTE_FILE_COUNT);
+			if (files.length > MAX_PASTE_FILE_COUNT) {
+				showToast(`一次最多粘贴 ${MAX_PASTE_FILE_COUNT} 个文件`);
+			}
+
+			const markdownBeforePaste = editor.getMarkdown() ?? detailMarkdown;
+			selectedFiles.forEach((file) => {
+				const tempUrl = window.URL.createObjectURL(file);
+				editor.insertMarkdown(`${makePastedAssetMarkdown(file, tempUrl)}\n\n`);
+				const task = uploadPastedFile(file, tempUrl, markdownBeforePaste);
+				pendingAssetUploadsRef.current.add(task);
+				void task.finally(() => {
+					pendingAssetUploadsRef.current.delete(task);
+				});
+			});
+		},
+		[detailMarkdown, showToast, uploadPastedFile]
+	);
+
 	const createNewNote = () => {
 		if (!confirmDiscardDetailChanges()) {
 			return;
 		}
+		currentNoteIdRef.current = null;
+		detailTitleRef.current = "";
 		setCurrentNoteId(null);
 		setDetailTitle("");
 		setDetailMarkdown("");
@@ -891,6 +1083,8 @@ function FloatingNotesCore(
 		}
 		setActivePage("notes");
 		setSwipedNoteId(null);
+		currentNoteIdRef.current = note.id;
+		detailTitleRef.current = note.title || "";
 		setCurrentNoteId(note.id);
 		setDetailTitle(note.title || "");
 		setDetailMarkdown(note.markdown || "");
@@ -902,9 +1096,14 @@ function FloatingNotesCore(
 
 	const saveDetailNote = async (markdownOverride?: string) => {
 		const title = detailTitle.trim();
-		const markdown = markdownOverride ?? markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
 		if (!title) {
 			window.alert("请输入标题");
+			return;
+		}
+		await waitForPendingAssetUploads();
+		const markdown = markdownOverride ?? markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
+		if (containsPendingAssetReference(markdown)) {
+			showToast("有附件上传失败，请删除占位内容后再保存");
 			return;
 		}
 		if (
@@ -937,6 +1136,7 @@ function FloatingNotesCore(
 			await deleteCurrentNote(note.id);
 			await fetchNotes();
 			if (currentNoteId === note.id) {
+				currentNoteIdRef.current = null;
 				setDetailOpen(false);
 				setCurrentNoteId(null);
 			}
@@ -1302,7 +1502,7 @@ function FloatingNotesCore(
 									setSavedDetailMarkdown(markdown);
 								}}
 								onSave={(markdown) => void saveDetailNote(markdown)}
-								onUnsupportedImagePaste={() => showToast("图片上传将在下一版本支持")}
+								onPasteFiles={handlePasteFiles}
 							/>
 						</section>
 					</section>
