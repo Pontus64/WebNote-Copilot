@@ -122,6 +122,161 @@ function isTextControl(element: Element | null): element is HTMLInputElement | H
 	return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
 }
 
+const TOOLBAR_WIDTH_GUESS = 155;
+const TOOLBAR_HEIGHT_GUESS = 37;
+const TOOLBAR_EDGE_GAP = 8;
+
+type ToolbarRect = {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+	bottom: number;
+};
+
+function getDeepActiveElement(root: Document | ShadowRoot = document): Element | null {
+	const activeElement = root.activeElement;
+	if (!activeElement) {
+		return null;
+	}
+	if (activeElement.shadowRoot?.activeElement) {
+		return getDeepActiveElement(activeElement.shadowRoot) ?? activeElement;
+	}
+	return activeElement;
+}
+
+function getToolbarPosition(rect: ToolbarRect) {
+	const left = Math.max(
+		TOOLBAR_EDGE_GAP + TOOLBAR_WIDTH_GUESS / 2,
+		Math.min(
+			rect.left + rect.width / 2,
+			window.innerWidth - TOOLBAR_EDGE_GAP - TOOLBAR_WIDTH_GUESS / 2
+		)
+	);
+	const top = Math.max(
+		TOOLBAR_EDGE_GAP,
+		Math.min(rect.bottom + TOOLBAR_EDGE_GAP, window.innerHeight - TOOLBAR_HEIGHT_GUESS)
+	);
+	return { left, top };
+}
+
+function getTextControlSelectionRect(
+	control: HTMLInputElement | HTMLTextAreaElement,
+	start: number,
+	end: number
+): ToolbarRect | null {
+	const ownerDocument = control.ownerDocument;
+	const ownerWindow = ownerDocument.defaultView;
+	const body = ownerDocument.body;
+	if (!ownerWindow || !body) {
+		return null;
+	}
+
+	const controlRect = control.getBoundingClientRect();
+	if (!controlRect.width && !controlRect.height) {
+		return null;
+	}
+
+	const computed = ownerWindow.getComputedStyle(control);
+	const mirror = ownerDocument.createElement("div");
+	const marker = ownerDocument.createElement("span");
+	const copyProperties = [
+		"box-sizing",
+		"font-family",
+		"font-size",
+		"font-style",
+		"font-weight",
+		"letter-spacing",
+		"line-height",
+		"text-align",
+		"text-indent",
+		"text-transform",
+		"word-spacing",
+		"word-break",
+		"overflow-wrap",
+		"padding-top",
+		"padding-right",
+		"padding-bottom",
+		"padding-left",
+		"border-top-width",
+		"border-right-width",
+		"border-bottom-width",
+		"border-left-width",
+		"border-top-style",
+		"border-right-style",
+		"border-bottom-style",
+		"border-left-style",
+		"tab-size",
+		"direction",
+	];
+
+	copyProperties.forEach((property) => {
+		mirror.style.setProperty(property, computed.getPropertyValue(property));
+	});
+
+	mirror.style.position = "fixed";
+	mirror.style.left = `${controlRect.left}px`;
+	mirror.style.top = `${controlRect.top}px`;
+	mirror.style.width = `${controlRect.width}px`;
+	mirror.style.height = `${controlRect.height}px`;
+	mirror.style.overflow = "hidden";
+	mirror.style.visibility = "hidden";
+	mirror.style.pointerEvents = "none";
+	mirror.style.background = "transparent";
+	mirror.style.color = "transparent";
+	mirror.style.zIndex = "-1";
+	mirror.style.whiteSpace = control instanceof HTMLInputElement ? "pre" : "pre-wrap";
+	mirror.style.overflowWrap = computed.overflowWrap || "break-word";
+
+	marker.style.whiteSpace = "inherit";
+	marker.textContent = control.value.slice(start, end) || "\u200b";
+	mirror.textContent = control.value.slice(0, start);
+	mirror.append(marker, ownerDocument.createTextNode(control.value.slice(end) || "\u200b"));
+	body.appendChild(mirror);
+
+	mirror.scrollTop = control.scrollTop;
+	mirror.scrollLeft = control.scrollLeft;
+
+	const rects = Array.from(marker.getClientRects()).filter(
+		(rect) => rect.width > 0 && rect.height > 0
+	);
+	const rect = rects[0] ?? marker.getBoundingClientRect();
+	const result =
+		rect && (rect.width || rect.height)
+			? {
+					left: rect.left,
+					top: rect.top,
+					width: rect.width,
+					height: rect.height,
+					bottom: rect.bottom,
+				}
+			: null;
+
+	mirror.remove();
+	return result;
+}
+
+function getTextControlSelectionToolbar(
+	control: HTMLInputElement | HTMLTextAreaElement
+): SelectionToolbar | null {
+	const selectionStart = control.selectionStart;
+	const selectionEnd = control.selectionEnd;
+	if (selectionStart === null || selectionEnd === null || selectionStart === selectionEnd) {
+		return null;
+	}
+
+	const start = Math.min(selectionStart, selectionEnd);
+	const end = Math.max(selectionStart, selectionEnd);
+	const text = control.value.slice(start, end).trim();
+	if (!text) {
+		return null;
+	}
+
+	const rect = getTextControlSelectionRect(control, start, end) ?? control.getBoundingClientRect();
+	const position = getToolbarPosition(rect);
+	return { text, ...position };
+}
+
 export const FloatingNotesCore = forwardRef<FloatingNotesCoreHandle, FloatingNotesCoreProps>(
 function FloatingNotesCore(
 	{ apiBase = "", floatButton = true, title = "笔记" },
@@ -412,11 +567,26 @@ function FloatingNotesCore(
 		const handleSelectionChange = () => {
 			window.clearTimeout(selectionTimerRef.current);
 			selectionTimerRef.current = window.setTimeout(() => {
+				const activeElement = getDeepActiveElement();
+				const detailElement = drawerRef.current?.querySelector("#dst-note-detail") ?? null;
+				if (
+					activePage === "notes" &&
+					detailOpen &&
+					isTextControl(activeElement) &&
+					detailElement?.contains(activeElement)
+				) {
+					const textControlToolbar = getTextControlSelectionToolbar(activeElement);
+					if (textControlToolbar) {
+						setToolbarText(textControlToolbar.text);
+						setToolbar(textControlToolbar);
+						return;
+					}
+				}
+
 				const selection = window.getSelection();
 				const text = selection?.toString().trim() ?? "";
 				const anchor = selection?.anchorNode ?? null;
 				const focus = selection?.focusNode ?? null;
-				const detailElement = drawerRef.current?.querySelector("#dst-note-detail") ?? null;
 				const anchorInDrawer = Boolean(anchor && drawerRef.current?.contains(anchor));
 				const focusInDrawer = Boolean(focus && drawerRef.current?.contains(focus));
 				const anchorInDetail = Boolean(anchor && detailElement?.contains(anchor));
@@ -429,31 +599,7 @@ function FloatingNotesCore(
 					return;
 				}
 				if (!selection || !selection.rangeCount || !text) {
-					const activeElement = document.activeElement;
-					if (activePage !== "notes" || !isTextControl(activeElement)) {
-						setToolbar(null);
-						return;
-					}
-					if (!detailOpen || !detailElement?.contains(activeElement)) {
-						setToolbar(null);
-						return;
-					}
-					const start = activeElement.selectionStart ?? 0;
-					const end = activeElement.selectionEnd ?? 0;
-					const controlText = activeElement.value.slice(start, end).trim();
-					if (!controlText) {
-						setToolbar(null);
-						return;
-					}
-					const rect = activeElement.getBoundingClientRect();
-					const widthGuess = 155;
-					const left = Math.max(
-						8 + widthGuess / 2,
-						Math.min(rect.left + rect.width / 2, window.innerWidth - 8 - widthGuess / 2)
-					);
-					const top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 37));
-					setToolbarText(controlText);
-					setToolbar({ text: controlText, left, top });
+					setToolbar(null);
 					return;
 				}
 				if (
@@ -477,12 +623,7 @@ function FloatingNotesCore(
 						setToolbar(null);
 						return;
 					}
-					const widthGuess = 155;
-					const left = Math.max(
-						8 + widthGuess / 2,
-						Math.min(rect.left + rect.width / 2, window.innerWidth - 8 - widthGuess / 2)
-					);
-					const top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 37));
+					const { left, top } = getToolbarPosition(rect);
 					setToolbarText(text);
 					setToolbar({ text, left, top });
 				} catch {
@@ -690,6 +831,13 @@ function FloatingNotesCore(
 
 		setToolbar(null);
 		void saveSelectionNote(text).finally(() => setToolbarText(""));
+	};
+
+	const scheduleSelectionToolbar = () => {
+		window.clearTimeout(selectionTimerRef.current);
+		selectionTimerRef.current = window.setTimeout(() => {
+			document.dispatchEvent(new Event("selectionchange"));
+		}, 0);
 	};
 
 	const stopToolbarPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1073,6 +1221,10 @@ function FloatingNotesCore(
 									className="detail-title"
 									value={detailTitle}
 									onChange={(event) => setDetailTitle(event.target.value)}
+									onKeyUp={scheduleSelectionToolbar}
+									onMouseUp={scheduleSelectionToolbar}
+									onSelect={scheduleSelectionToolbar}
+									onTouchEnd={scheduleSelectionToolbar}
 									placeholder="输入标题"
 								/>
 								<button type="button" className="save-btn" onClick={() => void saveDetailNote()}>
@@ -1083,6 +1235,10 @@ function FloatingNotesCore(
 								className="detail-content"
 								value={detailContent}
 								onChange={(event) => setDetailContent(event.target.value)}
+								onKeyUp={scheduleSelectionToolbar}
+								onMouseUp={scheduleSelectionToolbar}
+								onSelect={scheduleSelectionToolbar}
+								onTouchEnd={scheduleSelectionToolbar}
 								placeholder="输入内容..."
 							></textarea>
 						</section>
