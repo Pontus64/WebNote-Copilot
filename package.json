@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run build:widget && vite build",
-    "build:widget": "vite build --config vite.widget.config.mts && cp dist/widget/floating-notes-widget.js public/embed/floating-notes-widget.js",
+    "build:widget": "vite build --config vite.widget.config.mts && cp dist/widget/floating-notes-widget.js public/embed/floating-notes-widget.js && node scripts/strip-trailing-whitespace.mjs public/embed/floating-notes-widget.js",
     "deploy": "npm run build && wrangler deploy",
     "dev": "vite --host 127.0.0.1",
     "preview": "vite preview --host 127.0.0.1",

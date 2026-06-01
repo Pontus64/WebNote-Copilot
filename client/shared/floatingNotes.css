@@ -5,8 +5,9 @@
 @import "@milkdown/crepe/theme/common/link-tooltip.css";
 @import "@milkdown/crepe/theme/common/list-item.css";
 @import "@milkdown/crepe/theme/common/placeholder.css";
-@import "@milkdown/crepe/theme/common/toolbar.css";
+@import "@milkdown/crepe/theme/common/top-bar.css";
 @import "@milkdown/crepe/theme/common/table.css";
+@import "@milkdown/crepe/theme/common/code-mirror.css";
 
 :root {
 	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
@@ -1983,6 +1984,8 @@ svg {
 	background: var(--dst-bg-2);
 	color: var(--dst-text);
 	position: relative;
+	display: flex;
+	flex-direction: column;
 }
 
 .light .markdown-editor-root .milkdown {
@@ -1993,57 +1996,284 @@ svg {
 }
 
 .markdown-editor-root .milkdown .editor {
-	height: 100%;
+	flex: 1 1 auto;
+	min-height: 0;
+	height: auto;
 	overflow-y: auto;
-	padding: 58px 20px 26px;
+	padding: 0 0 26px;
 	font-size: 15px;
 	line-height: 1.72;
 }
 
-.markdown-editor-root .milkdown .milkdown-toolbar {
-	position: absolute !important;
-	top: 0 !important;
-	left: 0 !important;
-	right: 0 !important;
-	bottom: auto !important;
+.markdown-editor-root .milkdown .milkdown-top-bar {
+	position: sticky !important;
+	top: 0;
+	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
-	gap: 2px;
-	height: 46px;
-	padding: 0 10px;
+	min-height: 48px;
+	width: 100%;
+	margin: 0 0 18px;
+	padding: 5px 10px;
 	border-bottom: 1px solid var(--dst-border);
 	border-radius: 0;
 	background: var(--dst-header);
 	box-shadow: none;
-	overflow-x: auto;
-	overflow-y: hidden;
+	overflow: visible;
 	transform: none !important;
 	z-index: 8;
+	flex-wrap: wrap;
 }
 
-.markdown-editor-root .milkdown .milkdown-toolbar[data-show="false"] {
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-inner {
 	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	width: 100%;
+	min-width: 0;
+	max-width: 100%;
+	gap: 4px;
 }
 
-.markdown-editor-root .milkdown .milkdown-toolbar .divider {
-	height: 20px;
-	margin: 0 4px;
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-row {
+	width: 100%;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0;
+	flex-wrap: nowrap;
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-divider {
+	width: 1px;
+	height: 24px;
+	flex: 0 0 auto;
+	margin: 0 7px;
 	background: var(--dst-border-strong);
 }
 
-.markdown-editor-root .milkdown .milkdown-toolbar .toolbar-item {
-	width: 30px;
-	height: 30px;
-	flex: 0 0 30px;
-	margin: 0;
-	padding: 5px;
-	border: 0;
-	background: transparent;
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-heading-selector {
+	position: relative;
+	flex: 0 1 62px;
+	min-width: 46px;
+	max-width: 74px;
+	padding: 0;
+	z-index: 12;
 }
 
-.markdown-editor-root .milkdown .milkdown-toolbar .toolbar-item svg {
-	width: 20px;
-	height: 20px;
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-heading-button {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	min-width: 0;
+	height: 34px;
+	padding: 0 5px;
+	border-radius: 7px;
+	cursor: pointer;
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-heading-button:hover,
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-item:hover {
+	background: var(--crepe-color-hover);
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-heading-label {
+	min-width: 0;
+	color: var(--dst-text);
+	font-size: 13px;
+	font-weight: 700;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-chevron {
+	width: 16px;
+	height: 16px;
+	flex: 0 1 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-heading-dropdown {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	z-index: 13;
+	min-width: 112px;
+	padding: 5px;
+	border: 1px solid var(--dst-border-strong);
+	border-radius: 8px;
+	background: var(--dst-bg-2);
+	box-shadow: var(--dst-shadow);
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-heading-option {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	padding: 8px 10px;
+	border-radius: 6px;
+	color: var(--dst-text);
+	font-size: 13px;
+	text-align: left;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-heading-option:hover {
+	background: var(--crepe-color-hover);
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-heading-option.active {
+	color: var(--dst-cyan);
+	font-weight: 700;
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-item {
+	position: relative;
+	width: 32px;
+	height: 32px;
+	flex: 0 1 32px;
+	min-width: 16px;
+	max-width: 32px;
+	margin: 0;
+	padding: 5px;
+	border-radius: 7px;
+	background: transparent;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-item[data-toolbar-role="separator"] {
+	width: 1px;
+	min-width: 1px;
+	max-width: 1px;
+	flex: 0 1 1px;
+	margin: 0;
+	padding: 0;
+	background: var(--dst-border-strong);
+	pointer-events: none;
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-item[data-toolbar-role="separator"]
+	svg {
+	display: none;
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-heading-button[data-tooltip]::after,
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-item[data-tooltip]::after {
+	position: absolute;
+	top: calc(100% + 7px);
+	left: 50%;
+	z-index: 30;
+	display: block;
+	max-width: 132px;
+	padding: 5px 7px;
+	border: 1px solid var(--dst-border-strong);
+	border-radius: 6px;
+	background: var(--dst-bg);
+	color: var(--dst-text);
+	box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+	content: attr(data-tooltip);
+	font-size: 12px;
+	font-weight: 650;
+	line-height: 1.2;
+	opacity: 0;
+	pointer-events: none;
+	text-align: center;
+	transform: translate(-50%, -3px);
+	transition: opacity 0.12s ease, transform 0.12s ease;
+	white-space: nowrap;
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-heading-button[data-tooltip]:hover::after,
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-heading-button[data-tooltip]:focus-visible::after,
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-item[data-tooltip]:hover::after,
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-item[data-tooltip]:focus-visible::after {
+	opacity: 1;
+	transform: translate(-50%, 0);
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-heading-selector:has(.top-bar-heading-dropdown)
+	.top-bar-heading-button[data-tooltip]::after {
+	opacity: 0;
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar svg {
+	width: min(20px, 100%);
+	height: min(20px, 100%);
+	color: var(--dst-text-2);
+	fill: var(--dst-text-2);
+	stroke: var(--dst-text-2);
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-item.active svg {
+	color: var(--dst-cyan);
+	fill: var(--dst-cyan);
+	stroke: var(--dst-cyan);
+}
+
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-item
+	svg[width="30"],
+.markdown-editor-root
+	.milkdown
+	.milkdown-top-bar
+	.top-bar-item
+	svg[width="36"] {
+	width: min(30px, 100%);
+	height: min(20px, 100%);
+}
+
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-item:has(svg[width="30"]),
+.markdown-editor-root .milkdown .milkdown-top-bar .top-bar-item:has(svg[width="36"]) {
+	width: 38px;
+	min-width: 20px;
+	max-width: 38px;
+	flex-basis: 38px;
 }
 
 .markdown-editor-root .milkdown .ProseMirror {
@@ -2052,6 +2282,7 @@ svg {
 	outline: 0;
 	background: var(--dst-bg-2);
 	color: var(--dst-text);
+	padding: 0 20px;
 	-webkit-user-select: text;
 	user-select: text;
 }
