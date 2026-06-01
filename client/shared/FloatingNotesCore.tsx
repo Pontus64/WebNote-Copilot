@@ -326,7 +326,8 @@ function FloatingNotesCore(
 
 	const hasUnsavedDetail =
 		detailOpen &&
-		(detailTitle !== savedDetailTitle || detailMarkdown !== savedDetailMarkdown);
+		(detailTitle.trim() !== savedDetailTitle.trim() ||
+			detailMarkdown !== savedDetailMarkdown);
 
 	const showToast = useCallback((message: string) => {
 		window.clearTimeout(toastTimerRef.current);
@@ -906,6 +907,13 @@ function FloatingNotesCore(
 			window.alert("请输入标题");
 			return;
 		}
+		if (
+			currentNoteId &&
+			title === savedDetailTitle.trim() &&
+			markdown === savedDetailMarkdown
+		) {
+			return;
+		}
 		try {
 			if (currentNoteId) {
 				await updateCurrentNote(currentNoteId, { title, markdown });
@@ -1275,7 +1283,12 @@ function FloatingNotesCore(
 									onTouchEnd={scheduleSelectionToolbar}
 									placeholder="输入标题"
 								/>
-								<button type="button" className="save-btn" onClick={() => void saveDetailNote()}>
+								<button
+									type="button"
+									className="save-btn"
+									disabled={Boolean(currentNoteId) && !hasUnsavedDetail}
+									onClick={() => void saveDetailNote()}
+								>
 									{hasUnsavedDetail ? "保存*" : "保存"}
 								</button>
 							</div>
@@ -1284,6 +1297,10 @@ function FloatingNotesCore(
 								ref={markdownEditorRef}
 								value={detailMarkdown}
 								onChange={setDetailMarkdown}
+								onReady={(markdown) => {
+									setDetailMarkdown(markdown);
+									setSavedDetailMarkdown(markdown);
+								}}
 								onSave={(markdown) => void saveDetailNote(markdown)}
 								onUnsupportedImagePaste={() => showToast("图片上传将在下一版本支持")}
 							/>

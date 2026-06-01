@@ -1932,6 +1932,11 @@ svg {
 	font-weight: 760;
 }
 
+.save-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
 .markdown-editor-shell {
 	flex: 1;
 	min-height: 0;
@@ -1977,6 +1982,7 @@ svg {
 	height: 100%;
 	background: var(--dst-bg-2);
 	color: var(--dst-text);
+	position: relative;
 }
 
 .light .markdown-editor-root .milkdown {
@@ -1989,9 +1995,55 @@ svg {
 .markdown-editor-root .milkdown .editor {
 	height: 100%;
 	overflow-y: auto;
-	padding: 18px 20px 26px;
+	padding: 58px 20px 26px;
 	font-size: 15px;
 	line-height: 1.72;
+}
+
+.markdown-editor-root .milkdown .milkdown-toolbar {
+	position: absolute !important;
+	top: 0 !important;
+	left: 0 !important;
+	right: 0 !important;
+	bottom: auto !important;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	height: 46px;
+	padding: 0 10px;
+	border-bottom: 1px solid var(--dst-border);
+	border-radius: 0;
+	background: var(--dst-header);
+	box-shadow: none;
+	overflow-x: auto;
+	overflow-y: hidden;
+	transform: none !important;
+	z-index: 8;
+}
+
+.markdown-editor-root .milkdown .milkdown-toolbar[data-show="false"] {
+	display: flex;
+}
+
+.markdown-editor-root .milkdown .milkdown-toolbar .divider {
+	height: 20px;
+	margin: 0 4px;
+	background: var(--dst-border-strong);
+}
+
+.markdown-editor-root .milkdown .milkdown-toolbar .toolbar-item {
+	width: 30px;
+	height: 30px;
+	flex: 0 0 30px;
+	margin: 0;
+	padding: 5px;
+	border: 0;
+	background: transparent;
+}
+
+.markdown-editor-root .milkdown .milkdown-toolbar .toolbar-item svg {
+	width: 20px;
+	height: 20px;
 }
 
 .markdown-editor-root .milkdown .ProseMirror {

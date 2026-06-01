@@ -24,6 +24,7 @@ export type MarkdownNoteEditorHandle = {
 type MarkdownNoteEditorProps = {
 	value: string;
 	onChange: (markdown: string) => void;
+	onReady?: (markdown: string) => void;
 	onSave: (markdown: string) => void;
 	onUnsupportedImagePaste: () => void;
 };
@@ -32,13 +33,14 @@ export const MarkdownNoteEditor = forwardRef<
 	MarkdownNoteEditorHandle,
 	MarkdownNoteEditorProps
 >(function MarkdownNoteEditor(
-	{ value, onChange, onSave, onUnsupportedImagePaste },
+	{ value, onChange, onReady, onSave, onUnsupportedImagePaste },
 	ref
 ) {
 	const rootRef = useRef<HTMLDivElement | null>(null);
 	const crepeRef = useRef<CrepeBuilder | null>(null);
 	const latestValueRef = useRef(value);
 	const onChangeRef = useRef(onChange);
+	const onReadyRef = useRef(onReady);
 	const onSaveRef = useRef(onSave);
 	const onUnsupportedImagePasteRef = useRef(onUnsupportedImagePaste);
 
@@ -48,9 +50,10 @@ export const MarkdownNoteEditor = forwardRef<
 
 	useEffect(() => {
 		onChangeRef.current = onChange;
+		onReadyRef.current = onReady;
 		onSaveRef.current = onSave;
 		onUnsupportedImagePasteRef.current = onUnsupportedImagePaste;
-	}, [onChange, onSave, onUnsupportedImagePaste]);
+	}, [onChange, onReady, onSave, onUnsupportedImagePaste]);
 
 	useImperativeHandle(
 		ref,
@@ -70,6 +73,8 @@ export const MarkdownNoteEditor = forwardRef<
 		if (!root) {
 			return;
 		}
+		let disposed = false;
+		let isInitialMount = true;
 
 		const crepe = new CrepeBuilder({
 			root,
@@ -95,16 +100,31 @@ export const MarkdownNoteEditor = forwardRef<
 		crepe.on((listener) => {
 			listener.markdownUpdated((_, markdown) => {
 				latestValueRef.current = markdown;
+				if (isInitialMount) {
+					return;
+				}
 				onChangeRef.current(markdown);
 			});
 		});
 
 		crepeRef.current = crepe;
-		void crepe.create().catch((error) => {
-			console.error("[FloatingNotes] Milkdown editor failed to mount", error);
-		});
+		void crepe
+			.create()
+			.then(() => {
+				if (disposed) {
+					return;
+				}
+				const markdown = readMarkdown(crepe, latestValueRef.current);
+				latestValueRef.current = markdown;
+				onReadyRef.current?.(markdown);
+				isInitialMount = false;
+			})
+			.catch((error) => {
+				console.error("[FloatingNotes] Milkdown editor failed to mount", error);
+			});
 
 		return () => {
+			disposed = true;
 			crepeRef.current = null;
 			void crepe.destroy().catch((error) => {
 				console.error("[FloatingNotes] Milkdown editor failed to destroy", error);
