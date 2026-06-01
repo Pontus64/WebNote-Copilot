@@ -24,6 +24,10 @@ import {
 	listNotes as listBackendNotes,
 	updateNote as updateBackendNote,
 } from "./notesApi";
+import {
+	MarkdownNoteEditor,
+	type MarkdownNoteEditorHandle,
+} from "./MarkdownNoteEditor";
 import type { DraftNote, Note, SelectionToolbar } from "./types";
 
 type Page = "chat" | "notes";
@@ -292,7 +296,10 @@ function FloatingNotesCore(
 	const [detailOpen, setDetailOpen] = useState(false);
 	const [currentNoteId, setCurrentNoteId] = useState<string | null>(null);
 	const [detailTitle, setDetailTitle] = useState("");
-	const [detailContent, setDetailContent] = useState("");
+	const [detailMarkdown, setDetailMarkdown] = useState("");
+	const [savedDetailTitle, setSavedDetailTitle] = useState("");
+	const [savedDetailMarkdown, setSavedDetailMarkdown] = useState("");
+	const [detailEditorKey, setDetailEditorKey] = useState(0);
 	const [toast, setToast] = useState("");
 	const [bottomGlow, setBottomGlow] = useState(false);
 	const [rightGlow, setRightGlow] = useState(false);
@@ -303,6 +310,7 @@ function FloatingNotesCore(
 	const drawerRef = useRef<HTMLElement | null>(null);
 	const toolbarRef = useRef<HTMLDivElement | null>(null);
 	const chatFrameRef = useRef<HTMLIFrameElement | null>(null);
+	const markdownEditorRef = useRef<MarkdownNoteEditorHandle | null>(null);
 	const particlesRef = useRef<Particle[]>([]);
 	const particleRafRef = useRef(0);
 	const selectionTimerRef = useRef(0);
@@ -315,6 +323,10 @@ function FloatingNotesCore(
 	const bridgeStatusRef = useRef<BridgeStatus>("pending");
 	const pendingBridgeReadyRef = useRef<Set<PendingBridgeReady>>(new Set());
 	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
+
+	const hasUnsavedDetail =
+		detailOpen &&
+		(detailTitle !== savedDetailTitle || detailMarkdown !== savedDetailMarkdown);
 
 	const showToast = useCallback((message: string) => {
 		window.clearTimeout(toastTimerRef.current);
@@ -692,7 +704,21 @@ function FloatingNotesCore(
 		}
 	};
 
+	const confirmDiscardDetailChanges = () => {
+		const currentMarkdown = markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
+		const isDirty =
+			detailOpen &&
+			(detailTitle !== savedDetailTitle || currentMarkdown !== savedDetailMarkdown);
+		if (!isDirty) {
+			return true;
+		}
+		return window.confirm("有未保存修改，确定离开吗？");
+	};
+
 	const close = () => {
+		if (!confirmDiscardDetailChanges()) {
+			return;
+		}
 		setDrawerOpen(false);
 		setDetailOpen(false);
 	};
@@ -788,7 +814,7 @@ function FloatingNotesCore(
 		playSaveAnimation(() => {
 			void (async () => {
 				try {
-					await createCurrentNote({ title: makeSelectionTitle(content), content });
+					await createCurrentNote({ title: makeSelectionTitle(content), markdown: content });
 					await fetchNotes();
 					showToast("已存入笔记");
 				} catch (error) {
@@ -846,34 +872,49 @@ function FloatingNotesCore(
 	};
 
 	const createNewNote = () => {
+		if (!confirmDiscardDetailChanges()) {
+			return;
+		}
 		setCurrentNoteId(null);
 		setDetailTitle("");
-		setDetailContent("");
+		setDetailMarkdown("");
+		setSavedDetailTitle("");
+		setSavedDetailMarkdown("");
+		setDetailEditorKey((value) => value + 1);
 		setDetailOpen(true);
 	};
 
 	const openDetail = (note: Note) => {
+		if (!confirmDiscardDetailChanges()) {
+			return;
+		}
 		setActivePage("notes");
 		setSwipedNoteId(null);
 		setCurrentNoteId(note.id);
 		setDetailTitle(note.title || "");
-		setDetailContent(note.content || "");
+		setDetailMarkdown(note.markdown || "");
+		setSavedDetailTitle(note.title || "");
+		setSavedDetailMarkdown(note.markdown || "");
+		setDetailEditorKey((value) => value + 1);
 		setDetailOpen(true);
 	};
 
-	const saveDetailNote = async () => {
+	const saveDetailNote = async (markdownOverride?: string) => {
 		const title = detailTitle.trim();
-		const content = detailContent.trim();
+		const markdown = markdownOverride ?? markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
 		if (!title) {
 			window.alert("请输入标题");
 			return;
 		}
 		try {
 			if (currentNoteId) {
-				await updateCurrentNote(currentNoteId, { title, content });
+				await updateCurrentNote(currentNoteId, { title, markdown });
 			} else {
-				await createCurrentNote({ title, content });
+				await createCurrentNote({ title, markdown });
 			}
+			setDetailMarkdown(markdown);
+			setSavedDetailTitle(title);
+			setSavedDetailMarkdown(markdown);
 			await fetchNotes();
 			setDetailOpen(false);
 			showToast("已保存");
@@ -964,7 +1005,7 @@ function FloatingNotesCore(
 	};
 
 	const askWithNote = (note: Note) => {
-		const text = (note.content || note.title || "").trim();
+		const text = (note.markdown || note.title || "").trim();
 		if (!text) {
 			showToast("笔记内容为空");
 			return;
@@ -1127,6 +1168,9 @@ function FloatingNotesCore(
 									className="dst-icon-btn"
 									title="回到 AI"
 									onClick={() => {
+										if (!confirmDiscardDetailChanges()) {
+											return;
+										}
 										setDetailOpen(false);
 										setActivePage("chat");
 									}}
@@ -1164,7 +1208,7 @@ function FloatingNotesCore(
 													className="copy-btn"
 													onClick={() => {
 														setSwipedNoteId(null);
-														void copyText(note.content || "")
+														void copyText(note.markdown || "")
 															.then(() => showToast("复制成功"))
 															.catch(() => showToast("复制失败"));
 													}}
@@ -1190,7 +1234,7 @@ function FloatingNotesCore(
 												onKeyDown={(event) => handleNoteKeyDown(note, event)}
 											>
 												<div className="note-title">{note.title || "未命名"}</div>
-												<div className="note-desc">{note.content || ""}</div>
+												<div className="note-desc">{note.excerpt || note.markdown || ""}</div>
 											</div>
 										</div>
 									))
@@ -1213,7 +1257,11 @@ function FloatingNotesCore(
 									type="button"
 									className="back-btn"
 									aria-label="返回"
-									onClick={() => setDetailOpen(false)}
+									onClick={() => {
+										if (confirmDiscardDetailChanges()) {
+											setDetailOpen(false);
+										}
+									}}
 								>
 									←
 								</button>
@@ -1228,19 +1276,17 @@ function FloatingNotesCore(
 									placeholder="输入标题"
 								/>
 								<button type="button" className="save-btn" onClick={() => void saveDetailNote()}>
-									保存
+									{hasUnsavedDetail ? "保存*" : "保存"}
 								</button>
 							</div>
-							<textarea
-								className="detail-content"
-								value={detailContent}
-								onChange={(event) => setDetailContent(event.target.value)}
-								onKeyUp={scheduleSelectionToolbar}
-								onMouseUp={scheduleSelectionToolbar}
-								onSelect={scheduleSelectionToolbar}
-								onTouchEnd={scheduleSelectionToolbar}
-								placeholder="输入内容..."
-							></textarea>
+							<MarkdownNoteEditor
+								key={detailEditorKey}
+								ref={markdownEditorRef}
+								value={detailMarkdown}
+								onChange={setDetailMarkdown}
+								onSave={(markdown) => void saveDetailNote(markdown)}
+								onUnsupportedImagePaste={() => showToast("图片上传将在下一版本支持")}
+							/>
 						</section>
 					</section>
 				</div>

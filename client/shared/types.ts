@@ -1,14 +1,18 @@
 export type Note = {
 	id: string;
 	title: string;
-	content: string;
+	markdown: string;
+	excerpt: string;
+	contentFormat: "markdown";
+	schemaVersion: 2;
+	assetCount: number;
 	createdAt: number;
 	updatedAt: number;
 };
 
 export type DraftNote = {
 	title: string;
-	content: string;
+	markdown: string;
 };
 
 export type ChatMessage = {

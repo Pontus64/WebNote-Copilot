@@ -677,7 +677,7 @@ function ChatThreadView({
 				return;
 			}
 
-			void createNote({ title: makeNoteTitle(text), content: text }, apiBase)
+			void createNote({ title: makeNoteTitle(text), markdown: text }, apiBase)
 				.then(() => {
 					notifyNotesChanged({ animateSave: true });
 					showToast("已存入笔记");
@@ -814,7 +814,7 @@ function MessageBubble({
 		}
 		setBusyAction("note");
 		try {
-			await createNote({ title: makeNoteTitle(text, "AI回复"), content: text }, apiBase);
+			await createNote({ title: makeNoteTitle(text, "AI回复"), markdown: text }, apiBase);
 			notifyNotesChanged({ animateSave: true });
 			onToast("回复已存为笔记");
 		} catch (error) {
@@ -832,7 +832,7 @@ function MessageBubble({
 		setBusyAction("summary");
 		try {
 			const { summary } = await summarizeChatContent(apiBase, text);
-			await createNote({ title: makeNoteTitle(summary, "AI概要"), content: summary }, apiBase);
+			await createNote({ title: makeNoteTitle(summary, "AI概要"), markdown: summary }, apiBase);
 			notifyNotesChanged({ animateSave: true });
 			onToast("概要已存为笔记");
 		} catch (error) {

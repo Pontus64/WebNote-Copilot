@@ -1,7 +1,11 @@
 type Note = {
 	id: string;
 	title: string;
-	content: string;
+	markdown: string;
+	excerpt: string;
+	contentFormat: "markdown";
+	schemaVersion: 2;
+	assetCount: number;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -9,7 +13,10 @@ type Note = {
 type NoteRow = {
 	id: string;
 	title: string | null;
-	content: string | null;
+	markdown: string | null;
+	excerpt: string | null;
+	schema_version: number | null;
+	asset_count: number | null;
 	created_at: number;
 	updated_at: number;
 };
@@ -364,7 +371,7 @@ async function handleChatRequest(
 async function listNotes(db: D1Database, userId: string): Promise<Note[]> {
 	const { results } = await db
 		.prepare(
-			`SELECT id, title, content, created_at, updated_at
+			`SELECT id, title, markdown, excerpt, schema_version, 0 AS asset_count, created_at, updated_at
 			 FROM notes
 			 WHERE user_id = ?
 			 ORDER BY updated_at DESC, created_at DESC`
@@ -394,17 +401,30 @@ async function createNote(request: Request, db: D1Database, userId: string): Pro
 	const note: Note = {
 		id: crypto.randomUUID(),
 		title: normalizeText(body.title),
-		content: normalizeText(body.content),
+		markdown: normalizeText(body.markdown),
+		excerpt: makeMarkdownExcerpt(normalizeText(body.markdown)),
+		contentFormat: "markdown",
+		schemaVersion: 2,
+		assetCount: 0,
 		createdAt: now,
 		updatedAt: now,
 	};
 
 	await db
 		.prepare(
-			`INSERT INTO notes (id, user_id, title, content, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?)`
+			`INSERT INTO notes (id, user_id, title, markdown, excerpt, schema_version, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 		)
-		.bind(note.id, userId, note.title, note.content, note.createdAt, note.updatedAt)
+		.bind(
+			note.id,
+			userId,
+			note.title,
+			note.markdown,
+			note.excerpt,
+			note.schemaVersion,
+			note.createdAt,
+			note.updatedAt
+		)
 		.run();
 
 	return json(note, 201, request);
@@ -422,20 +442,30 @@ async function updateNote(
 	}
 
 	const body = await readJsonBody(request);
+	const markdown = normalizeText(body.markdown);
 	const updated: Note = {
 		...existing,
 		title: normalizeText(body.title),
-		content: normalizeText(body.content),
+		markdown,
+		excerpt: makeMarkdownExcerpt(markdown),
 		updatedAt: Date.now(),
 	};
 
 	await db
 		.prepare(
 			`UPDATE notes
-			 SET title = ?, content = ?, updated_at = ?
+			 SET title = ?, markdown = ?, excerpt = ?, schema_version = ?, updated_at = ?
 			 WHERE id = ? AND user_id = ?`
 		)
-		.bind(updated.title, updated.content, updated.updatedAt, id, userId)
+		.bind(
+			updated.title,
+			updated.markdown,
+			updated.excerpt,
+			updated.schemaVersion,
+			updated.updatedAt,
+			id,
+			userId
+		)
 		.run();
 
 	return json(updated, 200, request);
@@ -462,7 +492,7 @@ async function deleteNote(
 async function findNote(db: D1Database, userId: string, id: string): Promise<Note | null> {
 	const row = await db
 		.prepare(
-			`SELECT id, title, content, created_at, updated_at
+			`SELECT id, title, markdown, excerpt, schema_version, 0 AS asset_count, created_at, updated_at
 			 FROM notes
 			 WHERE id = ? AND user_id = ?`
 		)
@@ -964,10 +994,30 @@ function noteFromRow(row: NoteRow): Note {
 	return {
 		id: row.id,
 		title: row.title ?? "",
-		content: row.content ?? "",
+		markdown: row.markdown ?? "",
+		excerpt: row.excerpt ?? makeMarkdownExcerpt(row.markdown ?? ""),
+		contentFormat: "markdown",
+		schemaVersion: 2,
+		assetCount: Number(row.asset_count ?? 0),
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
+}
+
+function makeMarkdownExcerpt(markdown: string): string {
+	const normalized = markdown
+		.replace(/```[\s\S]*?```/g, " ")
+		.replace(/`([^`]*)`/g, "$1")
+		.replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+		.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+		.replace(/^#{1,6}\s+/gm, "")
+		.replace(/^>\s?/gm, "")
+		.replace(/^[-*+]\s+/gm, "")
+		.replace(/^\d+\.\s+/gm, "")
+		.replace(/[*_~>#|[\]()]/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	return Array.from(normalized).slice(0, 120).join("");
 }
 
 function userFromRow(row: UserRow): User {

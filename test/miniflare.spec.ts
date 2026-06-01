@@ -17,6 +17,8 @@ const compatibilityFlags = [
 	"global_fetch_strictly_public",
 	"disable_ctx_exports",
 ] as const;
+const deepSeekApiKey = process.env.DEEPSEEK_API_KEY?.trim() || "";
+const itWithDeepSeek = deepSeekApiKey ? it : it.skip;
 
 describe("floating notes worker", () => {
 	let mf: Miniflare;
@@ -41,7 +43,7 @@ describe("floating notes worker", () => {
 		expect(body.message).toBe("unauthorized");
 	});
 
-	it("registers a user and claims seeded notes", async () => {
+	it("registers a user with an empty v2 notes list", async () => {
 		const auth = await registerTestUser(mf, "reader@example.com");
 		const response = await mf.dispatchFetch("http://example.com/api/notes", {
 			headers: authHeaders(auth.sessionToken),
@@ -49,34 +51,34 @@ describe("floating notes worker", () => {
 		const notes = await readJson<unknown[]>(response);
 
 		expect(response.status).toBe(200);
-		expect(notes.length).toBeGreaterThanOrEqual(5);
-		expect(notes).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					id: "1",
-					title: "词汇",
-				}),
-			])
-		);
+		expect(notes).toEqual([]);
 	});
 
-	it("creates, reads, updates, and deletes a user note", async () => {
+	it("creates, reads, updates, and deletes a markdown note", async () => {
 		const auth = await registerTestUser(mf, "notes@example.com");
 		const headers = authHeaders(auth.sessionToken);
 		const createResponse = await mf.dispatchFetch("http://example.com/api/notes", {
 			method: "POST",
 			headers,
-			body: JSON.stringify({ title: "测试笔记", content: "本地 D1 测试" }),
+			body: JSON.stringify({ title: "测试笔记", markdown: "# 本地 D1 测试\n\n- 第一项" }),
 		});
 		const created = await readJson<{
 			id: string;
 			title: string;
-			content: string;
+			markdown: string;
+			excerpt: string;
+			contentFormat: string;
+			schemaVersion: number;
+			assetCount: number;
 		}>(createResponse);
 
 		expect(createResponse.status).toBe(201);
 		expect(created.title).toBe("测试笔记");
-		expect(created.content).toBe("本地 D1 测试");
+		expect(created.markdown).toBe("# 本地 D1 测试\n\n- 第一项");
+		expect(created.excerpt).toContain("本地 D1 测试");
+		expect(created.contentFormat).toBe("markdown");
+		expect(created.schemaVersion).toBe(2);
+		expect(created.assetCount).toBe(0);
 
 		const getResponse = await mf.dispatchFetch(`http://example.com/api/notes/${created.id}`, {
 			headers,
@@ -91,13 +93,17 @@ describe("floating notes worker", () => {
 		const updateResponse = await mf.dispatchFetch(`http://example.com/api/notes/${created.id}`, {
 			method: "PUT",
 			headers,
-			body: JSON.stringify({ title: "已更新", content: "更新内容" }),
+			body: JSON.stringify({ title: "已更新", markdown: "## 更新内容\n\n任务列表\n\n- [ ] 待办" }),
 		});
 		await expect(updateResponse.json()).resolves.toEqual(
 			expect.objectContaining({
 				id: created.id,
 				title: "已更新",
-				content: "更新内容",
+				markdown: "## 更新内容\n\n任务列表\n\n- [ ] 待办",
+				excerpt: expect.stringContaining("更新内容"),
+				contentFormat: "markdown",
+				schemaVersion: 2,
+				assetCount: 0,
 			})
 		);
 
@@ -111,6 +117,20 @@ describe("floating notes worker", () => {
 			headers,
 		});
 		expect(missingResponse.status).toBe(404);
+	});
+
+	it("does not map legacy content into markdown", async () => {
+		const auth = await registerTestUser(mf, "legacy-content@example.com");
+		const response = await mf.dispatchFetch("http://example.com/api/notes", {
+			method: "POST",
+			headers: authHeaders(auth.sessionToken),
+			body: JSON.stringify({ title: "旧协议", content: "旧字段内容" }),
+		});
+		const note = await readJson<{ markdown: string; schemaVersion: number }>(response);
+
+		expect(response.status).toBe(201);
+		expect(note.markdown).toBe("");
+		expect(note.schemaVersion).toBe(2);
 	});
 
 	it("creates chat threads and lists messages", async () => {
@@ -152,7 +172,7 @@ describe("floating notes worker", () => {
 		expect(body.message).toBe("summary content is required");
 	});
 
-	it("streams a real DeepSeek response", async () => {
+	itWithDeepSeek("streams a real DeepSeek response", async () => {
 		const auth = await registerTestUser(mf, "deepseek@example.com");
 		const headers = authHeaders(auth.sessionToken);
 		const threadResponse = await mf.dispatchFetch("http://example.com/api/chat/threads", {
@@ -229,7 +249,7 @@ function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 		bindings: {
 			DEEPSEEK_BASE_URL: "https://api.deepseek.com",
 			DEEPSEEK_MODEL: "deepseek-v4-flash",
-			DEEPSEEK_API_KEY: readDeepSeekApiKey(),
+			DEEPSEEK_API_KEY: deepSeekApiKey,
 			...(options.bindings ?? {}),
 		},
 		d1Databases: ["wranglerdemo"],
@@ -250,14 +270,6 @@ function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 	} satisfies MiniflareOptions);
 }
 
-function readDeepSeekApiKey(): string {
-	const key = process.env.DEEPSEEK_API_KEY?.trim();
-	if (!key) {
-		throw new Error("DEEPSEEK_API_KEY is required because chat tests call real DeepSeek.");
-	}
-	return key;
-}
-
 async function resetDatabase(db: D1Database) {
 	await db.exec("DROP TABLE IF EXISTS d1_migrations");
 	await db.exec("DROP TABLE IF EXISTS auth_chat_messages");
@@ -268,6 +280,7 @@ async function resetDatabase(db: D1Database) {
 	await db.exec("DROP TABLE IF EXISTS chat_threads");
 	await db.exec("DROP TABLE IF EXISTS sessions");
 	await db.exec("DROP TABLE IF EXISTS users");
+	await db.exec("DROP TABLE IF EXISTS note_assets");
 	await db.exec("DROP TABLE IF EXISTS notes");
 
 	for (const query of migrationQueries()) {
