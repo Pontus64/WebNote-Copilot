@@ -566,6 +566,7 @@ function ChatThreadView({
 	const [toast, setToast] = useState("");
 	const viewportRef = useRef<HTMLDivElement | null>(null);
 	const toolbarRef = useRef<HTMLDivElement | null>(null);
+	const composingRef = useRef(false);
 	const selectionTimerRef = useRef(0);
 	const toastTimerRef = useRef(0);
 
@@ -719,10 +720,16 @@ function ChatThreadView({
 	};
 
 	const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		if (event.key === "Enter" && !event.shiftKey) {
-			event.preventDefault();
-			send();
+		if (event.key !== "Enter" || event.shiftKey) {
+			return;
 		}
+
+		if (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) {
+			return;
+		}
+
+		event.preventDefault();
+		send();
 	};
 
 	return (
@@ -779,6 +786,12 @@ function ChatThreadView({
 					rows={1}
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
+					onCompositionStart={() => {
+						composingRef.current = true;
+					}}
+					onCompositionEnd={() => {
+						composingRef.current = false;
+					}}
 					onKeyDown={handleKeyDown}
 					placeholder="Message"
 				/>
