@@ -122,14 +122,16 @@
   </main>
 
   <script
-    src="/embed/inject-floating-notes.js"
+    src="/embed/inject-floating-notes.js?v=1.0.14"
     data-trigger="#openNotes"
     data-title="笔记">
   </script>
   <script>
     const serviceOrigin = window.location.origin;
+    const embedScriptVersion = "1.0.14";
+    const embedScriptUrl = `${serviceOrigin}/embed/inject-floating-notes.js?v=${embedScriptVersion}`;
     const consoleSnippet = `(() => {
-  const url = "${serviceOrigin}/embed/inject-floating-notes.js";
+  const url = "${embedScriptUrl}";
   const script = document.createElement("script");
   const trustedUrl = window.trustedTypes
     ? window.trustedTypes
@@ -140,7 +142,7 @@
   script.dataset.title = "笔记";
   document.documentElement.appendChild(script);
 })();`;
-    const scriptTagSnippet = `<script src="${serviceOrigin}/embed/inject-floating-notes.js" data-title="笔记"><\/script>`;
+    const scriptTagSnippet = `<script src="${embedScriptUrl}" data-title="笔记"><\/script>`;
 
     document.getElementById("consoleSnippet").textContent = consoleSnippet;
     document.getElementById("scriptTagSnippet").textContent = scriptTagSnippet;
