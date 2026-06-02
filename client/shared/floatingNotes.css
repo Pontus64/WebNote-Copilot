@@ -2344,6 +2344,8 @@ svg {
 	z-index: 2147483647;
 	display: none;
 	transform: translate(-50%, -50%);
+	box-sizing: border-box;
+	max-width: calc(100% - 24px);
 	padding: 10px 18px;
 	border: 1px solid rgba(34, 211, 238, 0.35);
 	border-radius: 12px;
@@ -2352,7 +2354,12 @@ svg {
 	box-shadow: 0 14px 40px rgba(0, 0, 0, 0.34);
 	font-size: 13px;
 	font-weight: 760;
+	text-align: center;
 	pointer-events: none;
+}
+
+#dst-toast.in-drawer {
+	position: absolute;
 }
 
 #dst-toast.show {

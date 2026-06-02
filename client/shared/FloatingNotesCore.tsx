@@ -1514,13 +1514,18 @@ function FloatingNotesCore(
 						</section>
 					</section>
 				</div>
-			</aside>
+				{toast && drawerOpen ? (
+					<div id="dst-toast" className="show in-drawer" role="status" aria-live="polite">
+						{toast}
+					</div>
+				) : null}
+				</aside>
 
-			{toast ? (
-				<div id="dst-toast" className="show" role="status" aria-live="polite">
-					{toast}
-				</div>
-			) : null}
-		</div>
-	);
+				{toast && !drawerOpen ? (
+					<div id="dst-toast" className="show" role="status" aria-live="polite">
+						{toast}
+					</div>
+				) : null}
+			</div>
+		);
 });
