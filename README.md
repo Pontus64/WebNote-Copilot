@@ -50,7 +50,7 @@ http://127.0.0.1:5174/embed-demo.html
 
 ```html
 <script
-  src="/embed/inject-floating-notes.js?v=1.0.18"
+  src="/embed/inject-floating-notes.js?v=1.0.21"
   data-trigger="#openNotes"
   data-title="笔记">
 </script>
@@ -60,7 +60,7 @@ http://127.0.0.1:5174/embed-demo.html
 
 ```html
 <script
-  src="http://127.0.0.1:5174/embed/inject-floating-notes.js?v=1.0.18"
+  src="http://127.0.0.1:5174/embed/inject-floating-notes.js?v=1.0.21"
   data-api-base="http://127.0.0.1:5174"
   data-title="笔记">
 </script>
@@ -161,7 +161,7 @@ Cloudflare Wrangler 参考文档：
 
 ```html
 <script
-  src="https://notes.edmund.xin/embed/inject-floating-notes.js?v=1.0.18"
+  src="https://notes.edmund.xin/embed/inject-floating-notes.js?v=1.0.21"
   data-api-base="https://notes.edmund.xin"
   data-title="笔记">
 </script>
@@ -173,7 +173,7 @@ Cloudflare Wrangler 参考文档：
 <button id="openNotes">打开笔记</button>
 
 <script
-  src="https://notes.edmund.xin/embed/inject-floating-notes.js?v=1.0.18"
+  src="https://notes.edmund.xin/embed/inject-floating-notes.js?v=1.0.21"
   data-api-base="https://notes.edmund.xin"
   data-trigger="#openNotes"
   data-title="笔记">
@@ -214,8 +214,8 @@ https://notes.edmund.xin/floating-notes.user.js
 当前油猴脚本关键配置：
 
 ```js
-// @version      1.0.18
-// @require      https://notes.edmund.xin/embed/floating-notes-widget.js?v=1.0.18
+// @version      1.0.21
+// @require      https://notes.edmund.xin/embed/floating-notes-widget.js?v=1.0.21
 // @connect      notes.edmund.xin
 ```
 
@@ -228,7 +228,7 @@ public/floating-notes.user.js            @version 和 @require ?v=
 README.md / embed-demo.html              inject-floating-notes.js ?v=
 ```
 
-例如从 `1.0.17` 升到 `1.0.18`。这样可以避免浏览器、宿主页或 Tampermonkey 继续使用旧的 loader/widget 缓存。
+例如从 `1.0.20` 升到 `1.0.21`。这样可以避免浏览器、宿主页或 Tampermonkey 继续使用旧的 loader/widget 缓存。
 
 发布油猴更新流程：
 

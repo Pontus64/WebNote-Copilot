@@ -1865,7 +1865,10 @@ svg {
 	flex-direction: column;
 	pointer-events: none;
 	transform: translateX(100%);
-	transition: transform 0.3s ease, opacity 0.3s ease;
+	transition:
+		inset 0.46s cubic-bezier(0.16, 1, 0.3, 1),
+		transform 0.3s ease,
+		opacity 0.3s ease;
 	will-change: transform, opacity;
 }
 
@@ -2411,9 +2414,24 @@ svg {
 		left: 0;
 		width: 100vw;
 		height: 66.666vh;
+		max-height: var(--dst-visual-viewport-height, 100dvh);
 		border-left: none;
 		border-top: 1px solid var(--dst-border-strong);
 		border-radius: 20px 20px 0 0;
+		transform: translateY(100%);
+		transition:
+			transform 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+			height 0.54s cubic-bezier(0.16, 1, 0.3, 1),
+			max-height 0.54s cubic-bezier(0.16, 1, 0.3, 1),
+			border-radius 0.46s cubic-bezier(0.16, 1, 0.3, 1),
+			border-color 0.3s ease;
+	}
+
+	#dst-drawer.detail-editing {
+		height: var(--dst-visual-viewport-height, 100dvh);
+		max-height: 100dvh;
+		border-radius: 0;
+		border-top: none;
 		transform: translateY(100%);
 	}
 
@@ -2429,6 +2447,14 @@ svg {
 		margin: 10px auto 2px;
 		border-radius: 4px;
 		background: var(--dst-bg-3);
+		opacity: 1;
+		transition: opacity 0.28s ease, height 0.32s ease, margin 0.32s ease;
+	}
+
+	#dst-drawer.detail-editing .dst-mobile-handle {
+		height: 0;
+		margin: 0 auto;
+		opacity: 0;
 	}
 
 	.dst-header {
@@ -2443,6 +2469,34 @@ svg {
 
 	.dst-chat-input-bar {
 		padding: 10px 14px max(14px, env(safe-area-inset-bottom));
+	}
+
+	#dst-drawer.detail-editing #dst-note-detail {
+		inset: 0;
+	}
+
+	#dst-drawer.detail-editing .detail-header {
+		height: 54px;
+		flex-basis: 54px;
+		padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+	}
+
+	#dst-drawer.detail-editing .detail-title {
+		font-size: 17px;
+	}
+
+	#dst-drawer.detail-editing .save-btn,
+	#dst-drawer.detail-editing .back-btn {
+		height: 32px;
+	}
+
+	#dst-drawer.detail-editing .markdown-editor-root .milkdown .editor {
+		padding-bottom: max(92px, calc(var(--dst-keyboard-inset, 0px) + 28px));
+		scroll-padding-bottom: max(92px, calc(var(--dst-keyboard-inset, 0px) + 28px));
+	}
+
+	#dst-drawer.detail-editing .markdown-editor-root .milkdown .ProseMirror {
+		padding-bottom: max(78px, calc(var(--dst-keyboard-inset, 0px) + 20px));
 	}
 
 	#dst-toolbar button {

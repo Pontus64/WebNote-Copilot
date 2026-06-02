@@ -340,6 +340,17 @@ function getTextControlSelectionToolbar(
 	return { text, ...position };
 }
 
+function isMobileViewport() {
+	return window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
+}
+
+function isDetailEditingTarget(target: EventTarget | null) {
+	if (!(target instanceof Element)) {
+		return false;
+	}
+	return isTextControl(target) || Boolean(target.closest("[contenteditable='true']"));
+}
+
 export const FloatingNotesCore = forwardRef<FloatingNotesCoreHandle, FloatingNotesCoreProps>(
 function FloatingNotesCore(
 	{ apiBase = "", floatButton = true, title = "笔记" },
@@ -359,6 +370,7 @@ function FloatingNotesCore(
 	const [savedDetailTitle, setSavedDetailTitle] = useState("");
 	const [savedDetailMarkdown, setSavedDetailMarkdown] = useState("");
 	const [detailEditorKey, setDetailEditorKey] = useState(0);
+	const [detailEditing, setDetailEditing] = useState(false);
 	const [toast, setToast] = useState("");
 	const [bottomGlow, setBottomGlow] = useState(false);
 	const [rightGlow, setRightGlow] = useState(false);
@@ -374,6 +386,7 @@ function FloatingNotesCore(
 	const particleRafRef = useRef(0);
 	const selectionTimerRef = useRef(0);
 	const toastTimerRef = useRef(0);
+	const detailEditingTimerRef = useRef(0);
 	const toolbarActionRef = useRef({ action: "", at: 0 });
 	const swipeRef = useRef<SwipeState | null>(null);
 	const blockedNoteClickRef = useRef("");
@@ -405,6 +418,44 @@ function FloatingNotesCore(
 	useEffect(() => {
 		detailTitleRef.current = detailTitle;
 	}, [detailTitle]);
+
+	const updateMobileViewportVars = useCallback(() => {
+		const drawer = drawerRef.current;
+		if (!drawer) {
+			return;
+		}
+		const viewport = window.visualViewport;
+		const viewportHeight = viewport?.height ?? window.innerHeight;
+		const viewportOffsetTop = viewport?.offsetTop ?? 0;
+		const keyboardInset = Math.max(
+			0,
+			window.innerHeight - viewportHeight - viewportOffsetTop
+		);
+		drawer.style.setProperty(
+			"--dst-visual-viewport-height",
+			`${Math.round(viewportHeight)}px`
+		);
+		drawer.style.setProperty("--dst-keyboard-inset", `${Math.round(keyboardInset)}px`);
+	}, []);
+
+	useEffect(() => {
+		updateMobileViewportVars();
+		window.addEventListener("resize", updateMobileViewportVars);
+		window.visualViewport?.addEventListener("resize", updateMobileViewportVars);
+		window.visualViewport?.addEventListener("scroll", updateMobileViewportVars);
+		return () => {
+			window.removeEventListener("resize", updateMobileViewportVars);
+			window.visualViewport?.removeEventListener("resize", updateMobileViewportVars);
+			window.visualViewport?.removeEventListener("scroll", updateMobileViewportVars);
+		};
+	}, [updateMobileViewportVars]);
+
+	useEffect(() => {
+		if (!drawerOpen || activePage !== "notes" || !detailOpen) {
+			window.clearTimeout(detailEditingTimerRef.current);
+			setDetailEditing(false);
+		}
+	}, [activePage, detailOpen, drawerOpen]);
 
 	const useNotesBridge = useCallback(() => {
 		try {
@@ -644,6 +695,7 @@ function FloatingNotesCore(
 			window.removeEventListener("resize", setupCanvas);
 			window.clearTimeout(selectionTimerRef.current);
 			window.clearTimeout(toastTimerRef.current);
+			window.clearTimeout(detailEditingTimerRef.current);
 			if (particleRafRef.current) {
 				cancelAnimationFrame(particleRafRef.current);
 			}
@@ -773,8 +825,8 @@ function FloatingNotesCore(
 		};
 	}, [activePage, detailOpen]);
 
-	const isMobile = () => window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
-	const getSaveEdge = (): "right" | "bottom" => (isMobile() ? "bottom" : "right");
+	const getSaveEdge = (): "right" | "bottom" =>
+		isMobileViewport() ? "bottom" : "right";
 
 	const playSaveAnimation = useCallback(
 		(afterAnimation?: () => void) => {
@@ -963,6 +1015,38 @@ function FloatingNotesCore(
 		selectionTimerRef.current = window.setTimeout(() => {
 			document.dispatchEvent(new Event("selectionchange"));
 		}, 0);
+	};
+
+	const enterDetailEditing = (target: EventTarget | null) => {
+		if (!isMobileViewport() || !isDetailEditingTarget(target)) {
+			return;
+		}
+		window.clearTimeout(detailEditingTimerRef.current);
+		updateMobileViewportVars();
+		setDetailEditing(true);
+		window.setTimeout(updateMobileViewportVars, 80);
+		window.setTimeout(() => {
+			if (target instanceof HTMLElement) {
+				target.scrollIntoView({ block: "nearest" });
+			}
+		}, 120);
+	};
+
+	const leaveDetailEditingSoon = () => {
+		window.clearTimeout(detailEditingTimerRef.current);
+		detailEditingTimerRef.current = window.setTimeout(() => {
+			const detailElement = drawerRef.current?.querySelector("#dst-note-detail") ?? null;
+			const activeElement = getDeepActiveElement();
+			if (
+				detailElement &&
+				activeElement &&
+				detailElement.contains(activeElement) &&
+				isDetailEditingTarget(activeElement)
+			) {
+				return;
+			}
+			setDetailEditing(false);
+		}, 220);
 	};
 
 	const stopToolbarPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1351,7 +1435,9 @@ function FloatingNotesCore(
 
 			<aside
 				id="dst-drawer"
-				className={drawerOpen ? "open" : ""}
+				className={`${drawerOpen ? "open" : ""} ${
+					detailOpen && detailEditing ? "detail-editing" : ""
+				}`}
 				aria-label="DeepSeek Typora 抽屉"
 				ref={drawerRef}
 			>
@@ -1504,7 +1590,13 @@ function FloatingNotesCore(
 							</div>
 						</div>
 
-						<section className="detail-page" id="dst-note-detail" aria-label="编辑笔记">
+						<section
+							className="detail-page"
+							id="dst-note-detail"
+							aria-label="编辑笔记"
+							onFocusCapture={(event) => enterDetailEditing(event.target)}
+							onBlurCapture={leaveDetailEditingSoon}
+						>
 							<div className="detail-header">
 								<button
 									type="button"
