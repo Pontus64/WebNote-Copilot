@@ -99,7 +99,7 @@ type MarkdownNoteEditorProps = {
 	value: string;
 	onChange: (markdown: string) => void;
 	onReady?: (markdown: string) => void;
-	onSave: (markdown: string) => void;
+	onSave: () => void;
 	onPasteFiles: (files: File[]) => void;
 };
 
@@ -403,7 +403,7 @@ export const MarkdownNoteEditor = forwardRef<
 			const markdown = readMarkdown(crepeRef.current, latestValueRef.current);
 			latestValueRef.current = markdown;
 			onChangeRef.current(markdown);
-			onSaveRef.current(markdown);
+			onSaveRef.current();
 		}
 	};
 

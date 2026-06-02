@@ -997,7 +997,7 @@ function FloatingNotesCore(
 		if (!pendingUploads.length) {
 			return;
 		}
-		showToast("附件上传中");
+		showToast("附件上传中，保存将在上传完成后继续");
 		await Promise.allSettled(pendingUploads);
 	}, [showToast]);
 
@@ -1102,16 +1102,16 @@ function FloatingNotesCore(
 		setDetailOpen(true);
 	};
 
-	const saveDetailNote = async (markdownOverride?: string) => {
+	const saveDetailNote = async () => {
 		const title = detailTitle.trim();
 		if (!title) {
 			window.alert("请输入标题");
 			return;
 		}
 		await waitForPendingAssetUploads();
-		const markdown = markdownOverride ?? markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
+		const markdown = markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
 		if (containsPendingAssetReference(markdown)) {
-			showToast("有附件上传失败，请删除占位内容后再保存");
+			showToast("附件未完成替换，请稍后重试或删除占位内容");
 			return;
 		}
 		if (
@@ -1508,7 +1508,7 @@ function FloatingNotesCore(
 									setDetailMarkdown(markdown);
 									setSavedDetailMarkdown(markdown);
 								}}
-								onSave={(markdown) => void saveDetailNote(markdown)}
+								onSave={() => void saveDetailNote()}
 								onPasteFiles={handlePasteFiles}
 							/>
 						</section>
