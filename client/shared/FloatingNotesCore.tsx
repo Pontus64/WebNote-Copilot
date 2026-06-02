@@ -124,6 +124,15 @@ function containsPendingAssetReference(markdown: string) {
 	return /\bblob:|__uploading_asset_/.test(markdown);
 }
 
+function hasDetailChanges(
+	title: string,
+	markdown: string,
+	savedTitle: string,
+	savedMarkdown: string
+) {
+	return title.trim() !== savedTitle.trim() || markdown !== savedMarkdown;
+}
+
 function escapeMarkdownLabel(value: string) {
 	return value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
 }
@@ -379,8 +388,7 @@ function FloatingNotesCore(
 
 	const hasUnsavedDetail =
 		detailOpen &&
-		(detailTitle.trim() !== savedDetailTitle.trim() ||
-			detailMarkdown !== savedDetailMarkdown);
+		hasDetailChanges(detailTitle, detailMarkdown, savedDetailTitle, savedDetailMarkdown);
 
 	const showToast = useCallback((message: string) => {
 		window.clearTimeout(toastTimerRef.current);
@@ -783,7 +791,7 @@ function FloatingNotesCore(
 		const currentMarkdown = markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
 		const isDirty =
 			detailOpen &&
-			(detailTitle !== savedDetailTitle || currentMarkdown !== savedDetailMarkdown);
+			hasDetailChanges(detailTitle, currentMarkdown, savedDetailTitle, savedDetailMarkdown);
 		if (!isDirty) {
 			return true;
 		}
@@ -1108,8 +1116,7 @@ function FloatingNotesCore(
 		}
 		if (
 			currentNoteId &&
-			title === savedDetailTitle.trim() &&
-			markdown === savedDetailMarkdown
+			!hasDetailChanges(title, markdown, savedDetailTitle, savedDetailMarkdown)
 		) {
 			return;
 		}

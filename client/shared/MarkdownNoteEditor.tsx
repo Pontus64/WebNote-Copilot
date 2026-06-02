@@ -332,26 +332,29 @@ export const MarkdownNoteEditor = forwardRef<
 					previewLoading: "加载中...",
 				},
 			},
-			});
+		});
 
-			crepe.editor.use([underlineAttr, ...underlineSchema]);
+		crepe.editor.use([underlineAttr, ...underlineSchema]);
 
-			crepe.editor.config((ctx) => {
-				ctx.update(remarkStringifyOptionsCtx, (options) => ({
-					...options,
-					handlers: {
-						...(options.handlers ?? {}),
-						underline: underlineRemarkHandler,
-					},
-				}));
-				ctx.update(uploadConfig.key, (config) => ({
-					...config,
-					uploader: async () => [],
-				}));
+		crepe.editor.config((ctx) => {
+			ctx.update(remarkStringifyOptionsCtx, (options) => ({
+				...options,
+				handlers: {
+					...(options.handlers ?? {}),
+					underline: underlineRemarkHandler,
+				},
+			}));
+			ctx.update(uploadConfig.key, (config) => ({
+				...config,
+				uploader: async () => [],
+			}));
 		});
 
 		crepe.on((listener) => {
 			listener.markdownUpdated((_, markdown) => {
+				if (disposed || markdown === latestValueRef.current) {
+					return;
+				}
 				latestValueRef.current = markdown;
 				if (isInitialMount) {
 					return;
