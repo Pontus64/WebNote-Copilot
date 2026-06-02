@@ -11,6 +11,7 @@ import {
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type PointerEvent as ReactPointerEvent,
+	type TouchEvent as ReactTouchEvent,
 	forwardRef,
 	useCallback,
 	useEffect,
@@ -384,6 +385,7 @@ function FloatingNotesCore(
 	const detailTitleRef = useRef("");
 	const pendingAssetUploadsRef = useRef<Set<Promise<void>>>(new Set());
 	const ensureUploadNotePromiseRef = useRef<Promise<string> | null>(null);
+	const toolbarPointerBlockUntilRef = useRef(0);
 	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
 
 	const hasUnsavedDetail =
@@ -727,7 +729,13 @@ function FloatingNotesCore(
 			}, 110);
 		};
 
-		const handleOutsidePointer = (event: MouseEvent | TouchEvent) => {
+		const handleOutsidePointer = (event: MouseEvent | PointerEvent | TouchEvent) => {
+			if (Date.now() < toolbarPointerBlockUntilRef.current) {
+				event.preventDefault();
+				event.stopPropagation();
+				return;
+			}
+
 			const target = event.target;
 			if (
 				target instanceof Element &&
@@ -745,7 +753,11 @@ function FloatingNotesCore(
 		document.addEventListener("mouseup", handleSelectionChange, true);
 		document.addEventListener("touchend", handleSelectionChange, true);
 		document.addEventListener("mousedown", handleOutsidePointer, true);
+		document.addEventListener("mouseup", handleOutsidePointer, true);
+		document.addEventListener("pointerup", handleOutsidePointer, true);
 		document.addEventListener("touchstart", handleOutsidePointer, true);
+		document.addEventListener("touchend", handleOutsidePointer, true);
+		document.addEventListener("click", handleOutsidePointer, true);
 		return () => {
 			document.removeEventListener("selectionchange", handleSelectionChange);
 			document.removeEventListener("select", handleSelectionChange, true);
@@ -753,7 +765,11 @@ function FloatingNotesCore(
 			document.removeEventListener("mouseup", handleSelectionChange, true);
 			document.removeEventListener("touchend", handleSelectionChange, true);
 			document.removeEventListener("mousedown", handleOutsidePointer, true);
+			document.removeEventListener("mouseup", handleOutsidePointer, true);
+			document.removeEventListener("pointerup", handleOutsidePointer, true);
 			document.removeEventListener("touchstart", handleOutsidePointer, true);
+			document.removeEventListener("touchend", handleOutsidePointer, true);
+			document.removeEventListener("click", handleOutsidePointer, true);
 		};
 	}, [activePage, detailOpen]);
 
@@ -952,6 +968,16 @@ function FloatingNotesCore(
 	const stopToolbarPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
+	};
+
+	const runToolbarActionFromPress = (
+		action: "ask" | "copy" | "save",
+		event: ReactPointerEvent<HTMLButtonElement> | ReactTouchEvent<HTMLButtonElement>
+	) => {
+		event.preventDefault();
+		event.stopPropagation();
+		toolbarPointerBlockUntilRef.current = Date.now() + 500;
+		runToolbarAction(action);
 	};
 
 	const ensureCurrentNoteForUpload = useCallback(
@@ -1283,18 +1309,29 @@ function FloatingNotesCore(
 					ref={toolbarRef}
 					style={{ left: toolbar.left, top: toolbar.top }}
 					onPointerDown={stopToolbarPointer}
+					onPointerUp={stopToolbarPointer}
+					onClick={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+					}}
 				>
 					<button
 						type="button"
 						className="dst-primary"
 						title="问 AI"
-						onClick={() => runToolbarAction("ask")}
+						onPointerDown={(event) => runToolbarActionFromPress("ask", event)}
+						onTouchStart={(event) => runToolbarActionFromPress("ask", event)}
 					>
 						<MessageSquareText aria-hidden="true" size={9} />
 						问AI
 					</button>
 					<span className="dst-divider" aria-hidden="true"></span>
-					<button type="button" title="复制" onClick={() => runToolbarAction("copy")}>
+					<button
+						type="button"
+						title="复制"
+						onPointerDown={(event) => runToolbarActionFromPress("copy", event)}
+						onTouchStart={(event) => runToolbarActionFromPress("copy", event)}
+					>
 						<Copy aria-hidden="true" size={9} />
 						复制
 					</button>
@@ -1303,7 +1340,8 @@ function FloatingNotesCore(
 						type="button"
 						className="dst-save"
 						title="存笔记"
-						onClick={() => runToolbarAction("save")}
+						onPointerDown={(event) => runToolbarActionFromPress("save", event)}
+						onTouchStart={(event) => runToolbarActionFromPress("save", event)}
 					>
 						<Save aria-hidden="true" size={9} />
 						笔记

@@ -28,6 +28,9 @@ import {
 import {
 	type FormEvent,
 	type KeyboardEvent,
+	type MouseEvent as ReactMouseEvent,
+	type PointerEvent as ReactPointerEvent,
+	type TouchEvent as ReactTouchEvent,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -569,6 +572,8 @@ function ChatThreadView({
 	const composingRef = useRef(false);
 	const selectionTimerRef = useRef(0);
 	const toastTimerRef = useRef(0);
+	const toolbarPointerBlockUntilRef = useRef(0);
+	const toolbarActionRef = useRef({ action: "", at: 0 });
 
 	useEffect(() => {
 		const viewport = viewportRef.current;
@@ -651,7 +656,13 @@ function ChatThreadView({
 			}, 110);
 		};
 
-		const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+		const handlePointerDown = (event: MouseEvent | PointerEvent | TouchEvent) => {
+			if (Date.now() < toolbarPointerBlockUntilRef.current) {
+				event.preventDefault();
+				event.stopPropagation();
+				return;
+			}
+
 			const target = event.target;
 			if (target instanceof Element && target.closest(".ai-selection-toolbar")) {
 				return;
@@ -661,16 +672,32 @@ function ChatThreadView({
 
 		document.addEventListener("selectionchange", handleSelectionChange);
 		document.addEventListener("mousedown", handlePointerDown, true);
+		document.addEventListener("mouseup", handlePointerDown, true);
+		document.addEventListener("pointerup", handlePointerDown, true);
 		document.addEventListener("touchstart", handlePointerDown, true);
+		document.addEventListener("touchend", handlePointerDown, true);
+		document.addEventListener("click", handlePointerDown, true);
 		return () => {
 			document.removeEventListener("selectionchange", handleSelectionChange);
 			document.removeEventListener("mousedown", handlePointerDown, true);
+			document.removeEventListener("mouseup", handlePointerDown, true);
+			document.removeEventListener("pointerup", handlePointerDown, true);
 			document.removeEventListener("touchstart", handlePointerDown, true);
+			document.removeEventListener("touchend", handlePointerDown, true);
+			document.removeEventListener("click", handlePointerDown, true);
 		};
 	}, []);
 
 	const runSelectionAction = useCallback(
 		(action: "ask" | "copy" | "save") => {
+			const now = Date.now();
+			if (
+				toolbarActionRef.current.action === action &&
+				now - toolbarActionRef.current.at < 600
+			) {
+				return;
+			}
+			toolbarActionRef.current = { action, at: now };
 			const text = (selectionToolbar?.text || selectionText).trim();
 			if (!text) {
 				showToast("未获取到选中文字");
@@ -732,6 +759,26 @@ function ChatThreadView({
 		send();
 	};
 
+	const stopSelectionToolbarEvent = (
+		event:
+			| ReactPointerEvent<HTMLDivElement>
+			| ReactPointerEvent<HTMLButtonElement>
+			| ReactMouseEvent<HTMLDivElement>
+			| ReactTouchEvent<HTMLButtonElement>
+	) => {
+		event.preventDefault();
+		event.stopPropagation();
+	};
+
+	const runSelectionActionFromPress = (
+		action: "ask" | "copy" | "save",
+		event: ReactPointerEvent<HTMLButtonElement> | ReactTouchEvent<HTMLButtonElement>
+	) => {
+		stopSelectionToolbarEvent(event);
+		toolbarPointerBlockUntilRef.current = Date.now() + 500;
+		runSelectionAction(action);
+	};
+
 	return (
 		<>
 			<div className="ai-messages" ref={viewportRef}>
@@ -762,20 +809,32 @@ function ChatThreadView({
 					className="ai-selection-toolbar"
 					ref={toolbarRef}
 					style={{ left: selectionToolbar.left, top: selectionToolbar.top }}
-					onPointerDown={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-					}}
+					onPointerDown={stopSelectionToolbarEvent}
+					onPointerUp={stopSelectionToolbarEvent}
+					onClick={stopSelectionToolbarEvent}
 				>
-					<button type="button" className="primary" onClick={() => runSelectionAction("ask")}>
+					<button
+						type="button"
+						className="primary"
+						onPointerDown={(event) => runSelectionActionFromPress("ask", event)}
+						onTouchStart={(event) => runSelectionActionFromPress("ask", event)}
+					>
 						<MessageSquareText aria-hidden="true" />
 						问AI
 					</button>
-					<button type="button" onClick={() => runSelectionAction("copy")}>
+					<button
+						type="button"
+						onPointerDown={(event) => runSelectionActionFromPress("copy", event)}
+						onTouchStart={(event) => runSelectionActionFromPress("copy", event)}
+					>
 						<Copy aria-hidden="true" />
 						复制
 					</button>
-					<button type="button" onClick={() => runSelectionAction("save")}>
+					<button
+						type="button"
+						onPointerDown={(event) => runSelectionActionFromPress("save", event)}
+						onTouchStart={(event) => runSelectionActionFromPress("save", event)}
+					>
 						<FilePlus2 aria-hidden="true" />
 						笔记
 					</button>
