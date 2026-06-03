@@ -139,6 +139,7 @@ const MAX_AGENT_NOTE_MARKDOWN_CHARS = 30_000;
 const AGENT_CONTEXT_MESSAGE_LIMIT = 20;
 const AGENT_ACTION_HEADER = "X-Floating-Notes-Action";
 const AGENT_MESSAGE_ID_HEADER = "X-Floating-Notes-Message-Id";
+const AGENT_NOTE_TITLE_HEADER = "X-Floating-Notes-Note-Title";
 const AGENT_NOTE_ID_HEADER = "X-Floating-Notes-Note-Id";
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
@@ -1135,7 +1136,7 @@ async function createPendingAgentNoteResponse(
 		};
 	}
 
-	const reply = `需要我帮你生成一篇「${action.title || "AI笔记"}」的笔记吗？`;
+	const reply = action.markdown;
 	const now = Date.now();
 	await env.wranglerdemo.batch([
 		env.wranglerdemo
@@ -1160,6 +1161,7 @@ async function createPendingAgentNoteResponse(
 	};
 	headers[AGENT_ACTION_HEADER] = "note_pending";
 	headers[AGENT_MESSAGE_ID_HEADER] = assistantMessageId;
+	headers[AGENT_NOTE_TITLE_HEADER] = encodeURIComponent(action.title || "AI笔记");
 
 	return new Response(reply, { headers });
 }
@@ -2236,7 +2238,7 @@ function corsHeaders(request: Request): HeadersInit {
 		"Access-Control-Allow-Origin": origin || "*",
 		"Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 		"Access-Control-Allow-Headers": "Content-Type, Authorization, X-File-Name, X-File-Size",
-		"Access-Control-Expose-Headers": `${AGENT_ACTION_HEADER}, ${AGENT_MESSAGE_ID_HEADER}, ${AGENT_NOTE_ID_HEADER}`,
+		"Access-Control-Expose-Headers": `${AGENT_ACTION_HEADER}, ${AGENT_MESSAGE_ID_HEADER}, ${AGENT_NOTE_TITLE_HEADER}, ${AGENT_NOTE_ID_HEADER}`,
 		"Access-Control-Allow-Credentials": "true",
 		"Vary": "Origin",
 	};

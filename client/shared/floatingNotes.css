@@ -363,6 +363,23 @@ svg {
 	color: #4f46e5;
 }
 
+.ai-loading-line {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	color: #6b7280;
+	font-size: 14px;
+	font-weight: 520;
+}
+
+.ai-loading-dots::after {
+	display: inline-block;
+	width: 18px;
+	text-align: left;
+	content: "";
+	animation: aiLoadingDots 1.2s steps(4, end) infinite;
+}
+
 .ai-message-actions.agent-confirm {
 	transition:
 		opacity 0.18s ease,
@@ -372,6 +389,16 @@ svg {
 .ai-message-actions.agent-confirm.resolving {
 	opacity: 0;
 	transform: translateY(-2px);
+}
+
+.ai-message-actions .agent-confirm-question {
+	flex-basis: 100%;
+	margin-bottom: 2px;
+	color: #4b5563;
+	font-size: 12px;
+	font-weight: 560;
+	line-height: 1.45;
+	white-space: normal;
 }
 
 .ai-message-actions .agent-confirm-primary {
@@ -402,6 +429,22 @@ svg {
 @keyframes aiSpin {
 	to {
 		transform: rotate(360deg);
+	}
+}
+
+@keyframes aiLoadingDots {
+	0% {
+		content: "";
+	}
+	25% {
+		content: ".";
+	}
+	50% {
+		content: "..";
+	}
+	75%,
+	100% {
+		content: "...";
 	}
 }
 
@@ -916,6 +959,14 @@ svg {
 
 .ai-shell.dark .ai-message-actions .summary {
 	color: #a5b4fc;
+}
+
+.ai-shell.dark .ai-loading-line {
+	color: #a1a1aa;
+}
+
+.ai-shell.dark .ai-message-actions .agent-confirm-question {
+	color: #d4d4d8;
 }
 
 .ai-shell.dark .ai-message-actions .agent-confirm-primary {

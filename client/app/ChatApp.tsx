@@ -92,9 +92,12 @@ type AiSelectionToolbar = {
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
 const AGENT_ACTION_HEADER = "X-Floating-Notes-Action";
 const AGENT_MESSAGE_ID_HEADER = "X-Floating-Notes-Message-Id";
+const AGENT_NOTE_TITLE_HEADER = "X-Floating-Notes-Note-Title";
 const AGENT_PENDING_ACTION = "note_pending";
 const AGENT_METADATA_ACTION = "pending_create_note";
 const AGENT_ACTIONS_TRANSITION_MS = 180;
+const AI_LOADING_TEXT = "正在思考";
+const AGENT_NOTE_LOADING_TEXT = "正在整理待确认笔记";
 
 async function generateNoteTitleOrFallback(
 	apiBase: string,
@@ -401,6 +404,18 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 					return;
 				}
 
+				yield {
+					content: [
+						{
+							type: "text",
+							text: shouldShowAgentNoteLoading(prompt)
+								? AGENT_NOTE_LOADING_TEXT
+								: AI_LOADING_TEXT,
+						},
+					],
+					status: { type: "running" },
+					metadata: { custom: { localLoading: true } },
+				};
 				const threadId = await ensureActiveThread(prompt);
 				const response = await sendChatMessage(apiBase, threadId, prompt, options.abortSignal);
 				if (!response.ok || !response.body) {
@@ -414,17 +429,20 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 
 				const agentAction = response.headers.get(AGENT_ACTION_HEADER) || "";
 				const agentMessageId = response.headers.get(AGENT_MESSAGE_ID_HEADER) || "";
-				const agentMetadata =
-					agentAction === AGENT_PENDING_ACTION && agentMessageId
-						? {
-								custom: {
+				const agentNoteTitle = decodeResponseHeader(response.headers.get(AGENT_NOTE_TITLE_HEADER));
+				const agentMetadata = {
+					custom:
+						agentAction === AGENT_PENDING_ACTION && agentMessageId
+							? {
+									localLoading: false,
 									agentAction: AGENT_METADATA_ACTION,
 									agentNoteStatus: "pending",
 									messageId: agentMessageId,
 									threadId,
-								},
-							}
-						: undefined;
+									title: agentNoteTitle,
+								}
+							: { localLoading: false },
+				};
 				const reader = response.body.getReader();
 				const decoder = new TextDecoder();
 				let text = "";
@@ -958,6 +976,8 @@ function MessageBubble({
 	const text = getMessageText(message);
 	const isUser = message.role === "user";
 	const customMetadata = getCustomMetadata(message);
+	const isLocalLoading =
+		!isUser && isStreaming && customMetadata.localLoading === true;
 	const initialAgentPending =
 		!isUser &&
 		customMetadata.agentAction === AGENT_METADATA_ACTION &&
@@ -965,6 +985,7 @@ function MessageBubble({
 	const agentMessageId =
 		normalizeMetadataString(customMetadata.messageId) || (initialAgentPending ? message.id : "");
 	const agentThreadId = normalizeMetadataString(customMetadata.threadId) || activeThreadId || "";
+	const agentNoteTitle = normalizeMetadataString(customMetadata.title).trim() || "AI笔记";
 	const [busyAction, setBusyAction] = useState<"note" | "summary" | null>(null);
 	const [agentBusy, setAgentBusy] = useState<"confirm" | null>(null);
 	const [agentPanelState, setAgentPanelState] = useState<"confirm" | "resolving" | "normal">(
@@ -1067,6 +1088,11 @@ function MessageBubble({
 				<div className="ai-message-content">
 					{isUser ? (
 						<p>{text}</p>
+					) : isLocalLoading ? (
+						<div className="ai-loading-line" role="status" aria-live="polite">
+							<span>{text}</span>
+							<span className="ai-loading-dots" aria-hidden="true" />
+						</div>
 					) : (
 						<ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
 					)}
@@ -1097,6 +1123,9 @@ function MessageBubble({
 							className={`ai-message-actions agent-confirm ${agentPanelState === "resolving" ? "resolving" : ""}`}
 							aria-label="生成笔记确认"
 						>
+							<span className="agent-confirm-question">
+								需要我帮你生成一篇「{agentNoteTitle}」的笔记吗？
+							</span>
 							<button
 								type="button"
 								className="agent-confirm-primary"
@@ -1315,6 +1344,47 @@ function toThreadMessageLike(message: ChatMessage): ThreadMessageLike {
 function getLastUserText(messages: readonly ThreadMessage[]): string {
 	const last = [...messages].reverse().find((message) => message.role === "user");
 	return last ? getMessageText(last) : "";
+}
+
+function shouldShowAgentNoteLoading(value: string): boolean {
+	const normalized = value.trim().toLowerCase();
+	if (!normalized) {
+		return false;
+	}
+	const triggers = [
+		"笔记",
+		"待办",
+		"待做",
+		"记下来",
+		"记录",
+		"保存",
+		"存一下",
+		"收一下",
+		"整理成",
+		"沉淀",
+		"落一篇",
+		"文档",
+		"方案",
+		"todo",
+		"note",
+		"save",
+		"record",
+		"remember",
+		"document",
+		"plan",
+	];
+	return triggers.some((trigger) => normalized.includes(trigger));
+}
+
+function decodeResponseHeader(value: string | null): string {
+	if (!value) {
+		return "";
+	}
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value;
+	}
 }
 
 function getCustomMetadata(message: ThreadMessage): Record<string, unknown> {

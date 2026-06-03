@@ -558,8 +558,14 @@ describe("floating notes worker", () => {
 			const text = await response.text();
 
 			expect(response.status).toBe(200);
-			expect(text).toBe("需要我帮你生成一篇「今日待做」的笔记吗？");
+			expect(text).toBe("# 今日待做\n\n- [ ] 买菜\n- [ ] 写日报");
 			expect(response.headers.get("X-Floating-Notes-Action")).toBe("note_pending");
+			expect(response.headers.get("X-Floating-Notes-Note-Title")).toBe(
+				encodeURIComponent("今日待做")
+			);
+			expect(response.headers.get("Access-Control-Expose-Headers")).toContain(
+				"X-Floating-Notes-Note-Title"
+			);
 			const agentMessageId = response.headers.get("X-Floating-Notes-Message-Id");
 			expect(agentMessageId).toEqual(expect.any(String));
 			expect(intentRequestCount).toBe(1);
@@ -580,7 +586,7 @@ describe("floating notes worker", () => {
 			expect(assistant).toEqual(
 				expect.objectContaining({
 					id: agentMessageId,
-					content: "需要我帮你生成一篇「今日待做」的笔记吗？",
+					content: "# 今日待做\n\n- [ ] 买菜\n- [ ] 写日报",
 					metadata: expect.objectContaining({
 						agentAction: "pending_create_note",
 						agentNoteStatus: "pending",
