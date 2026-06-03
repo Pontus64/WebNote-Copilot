@@ -190,6 +190,13 @@ export function summarizeChatContent(apiBase: string, content: string) {
 	});
 }
 
+export function generateChatTitle(apiBase: string, content: string) {
+	return apiRequest<{ title: string }>(apiBase, "/api/chat/title", {
+		method: "POST",
+		body: JSON.stringify({ content }),
+	});
+}
+
 export function resolveAgentNote(
 	apiBase: string,
 	threadId: string,

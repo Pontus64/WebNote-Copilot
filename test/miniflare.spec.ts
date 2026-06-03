@@ -393,6 +393,114 @@ describe("floating notes worker", () => {
 		expect(body.message).toBe("summary content is required");
 	});
 
+	it("requires auth for chat title generation", async () => {
+		const response = await mf.dispatchFetch("http://example.com/api/chat/title", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ content: "这是一段需要生成标题的笔记内容" }),
+		});
+		const body = await readJson<{ message: string }>(response);
+
+		expect(response.status).toBe(401);
+		expect(body.message).toBe("unauthorized");
+	});
+
+	it("validates chat title content", async () => {
+		const auth = await registerTestUser(mf, "title-empty@example.com");
+		const response = await mf.dispatchFetch("http://example.com/api/chat/title", {
+			method: "POST",
+			headers: authHeaders(auth.sessionToken),
+			body: JSON.stringify({ content: "" }),
+		});
+		const body = await readJson<{ message: string }>(response);
+
+		expect(response.status).toBe(400);
+		expect(body.message).toBe("title content is required");
+	});
+
+	it("generates and sanitizes chat titles", async () => {
+		let titleRequestCount = 0;
+		const rawTitle = "AI聊天存笔记标题生成与跨端选词概要保存体验优化升级完整流程";
+		const expectedTitle = Array.from(rawTitle).slice(0, 30).join("");
+		const titleMf = createMiniflare({
+			name: "y-title-test",
+			bindings: {
+				DEEPSEEK_API_KEY: "test-key",
+				DEEPSEEK_BASE_URL: "https://deepseek.test",
+			},
+			outboundService: async (request) => {
+				titleRequestCount += 1;
+				const body = (await request.json()) as {
+					stream?: boolean;
+					messages?: Array<{ role: string; content: string }>;
+				};
+				expect(new URL(request.url).origin).toBe("https://deepseek.test");
+				expect(body.stream).toBe(false);
+				expect(body.messages?.[0]?.content).toContain("30 characters or fewer");
+				expect(body.messages?.at(-1)?.content).toContain("标题生成优化");
+				return new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content: `标题：\`${rawTitle}...\``,
+								},
+							},
+						],
+					}),
+					{ headers: { "Content-Type": "application/json" } }
+				);
+			},
+		});
+		await titleMf.ready;
+		const titleDb = await titleMf.getD1Database("wranglerdemo");
+		await resetDatabase(titleDb);
+
+		try {
+			const auth = await registerTestUser(titleMf, "title-success@example.com");
+			const response = await titleMf.dispatchFetch("http://example.com/api/chat/title", {
+				method: "POST",
+				headers: authHeaders(auth.sessionToken),
+				body: JSON.stringify({ content: "这里要把 AI 聊天存笔记的标题生成优化一下" }),
+			});
+			const body = await readJson<{ title: string }>(response);
+
+			expect(response.status).toBe(200);
+			expect(body.title).toBe(expectedTitle);
+			expect(Array.from(body.title).length).toBeGreaterThan(0);
+			expect(Array.from(body.title).length).toBe(30);
+			expect(body.title).not.toMatch(/\.{2,}|…/);
+			expect(titleRequestCount).toBe(1);
+		} finally {
+			await titleMf.dispose();
+		}
+	});
+
+	it("fails chat title generation when DeepSeek is not configured", async () => {
+		const noKeyMf = createMiniflare({
+			name: "y-title-no-key-test",
+			bindings: { DEEPSEEK_API_KEY: "" },
+		});
+		await noKeyMf.ready;
+		const noKeyDb = await noKeyMf.getD1Database("wranglerdemo");
+		await resetDatabase(noKeyDb);
+
+		try {
+			const auth = await registerTestUser(noKeyMf, "title-no-key@example.com");
+			const response = await noKeyMf.dispatchFetch("http://example.com/api/chat/title", {
+				method: "POST",
+				headers: authHeaders(auth.sessionToken),
+				body: JSON.stringify({ content: "需要生成标题的内容" }),
+			});
+			const body = await readJson<{ message: string }>(response);
+
+			expect(response.status).toBe(503);
+			expect(body.message).toBe("DeepSeek API key is not configured");
+		} finally {
+			await noKeyMf.dispose();
+		}
+	});
+
 	it("asks for confirmation before creating an agent note", async () => {
 		let intentRequestCount = 0;
 		const agentMf = createMiniflare({

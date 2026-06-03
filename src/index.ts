@@ -134,6 +134,7 @@ const PASSWORD_ITERATIONS = 100_000;
 const SESSION_COOKIE_FALLBACK = "fn_session";
 const MAX_ASSET_UPLOAD_BYTES = 80 * 1024 * 1024;
 const MAX_AGENT_NOTE_TITLE_CHARS = 80;
+const MAX_GENERATED_NOTE_TITLE_CHARS = 30;
 const MAX_AGENT_NOTE_MARKDOWN_CHARS = 30_000;
 const AGENT_CONTEXT_MESSAGE_LIMIT = 20;
 const AGENT_ACTION_HEADER = "X-Floating-Notes-Action";
@@ -402,6 +403,15 @@ async function handleChatRequest(
 			throw new ApiError(400, "summary content is required");
 		}
 		return json({ summary: await summarizeChatContent(env, content) }, 200, request);
+	}
+
+	if (parts.length === 1 && parts[0] === "title" && request.method === "POST") {
+		const body = await readJsonBody(request);
+		const content = normalizeText(body.content).trim();
+		if (!content) {
+			throw new ApiError(400, "title content is required");
+		}
+		return json({ title: await generateChatTitle(env, content) }, 200, request);
 	}
 
 	if (parts.length === 1 && parts[0] === "threads" && request.method === "GET") {
@@ -1618,6 +1628,84 @@ function extractJsonObject(value: string): string {
 		return "";
 	}
 	return trimmed.slice(start, end + 1);
+}
+
+async function generateChatTitle(env: EnvWithBindings, content: string): Promise<string> {
+	if (!env.DEEPSEEK_API_KEY) {
+		throw new ApiError(503, "DeepSeek API key is not configured");
+	}
+
+	const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
+		method: "POST",
+		headers: {
+			"Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+			stream: false,
+			thinking: { type: "disabled" },
+			messages: [
+				{
+					role: "system",
+					content:
+						"Generate a concise note title for the user's text. Use the same language as the text. Return only the title. The title must be 30 characters or fewer. Do not use quotes, markdown, punctuation, labels, or ellipses. Do not add facts that are not in the text.",
+				},
+				{
+					role: "user",
+					content,
+				},
+			],
+		}),
+	});
+
+	if (!upstream.ok) {
+		const detail = await readLimitedText(upstream, 1800);
+		console.error(
+			JSON.stringify({
+				message: "DeepSeek title request failed",
+				status: upstream.status,
+				detail,
+			})
+		);
+		throw new ApiError(502, "title failed");
+	}
+
+	const parsed = (await upstream.json().catch(() => null)) as {
+		choices?: Array<{ message?: { content?: unknown } }>;
+	} | null;
+	const title = cleanGeneratedNoteTitle(parsed?.choices?.[0]?.message?.content);
+	if (!title) {
+		throw new ApiError(502, "title failed");
+	}
+	return title;
+}
+
+function cleanGeneratedNoteTitle(value: unknown): string {
+	if (typeof value !== "string") {
+		return "";
+	}
+
+	let title = stripGeneratedTitleWrapping(value);
+	title = truncateText(title, MAX_GENERATED_NOTE_TITLE_CHARS);
+	title = stripGeneratedTitleWrapping(title);
+	return title ? title : "";
+}
+
+function stripGeneratedTitleWrapping(value: string): string {
+	return value
+		.trim()
+		.replace(/^#+\s*/, "")
+		.replace(/^(?:标题|题目|Title)\s*[:：\-]\s*/i, "")
+		.replace(/^[`"'“”‘’《「『【\[\(（<]+/, "")
+		.replace(/[`"'“”‘’》」』】\]\)）>]+$/, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.replace(/(?:\.{2,}|…)+$/g, "")
+		.replace(/[。.!！?？,，;；:：、]+$/g, "")
+		.trim()
+		.replace(/^(?:标题|题目|Title)\s*[:：\-]\s*/i, "")
+		.trim();
 }
 
 async function summarizeChatContent(env: EnvWithBindings, content: string): Promise<string> {

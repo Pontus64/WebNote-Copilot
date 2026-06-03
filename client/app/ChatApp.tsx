@@ -47,6 +47,7 @@ import {
 	type User,
 	createThread,
 	deleteThread,
+	generateChatTitle,
 	getMe,
 	login,
 	logout,
@@ -95,10 +96,18 @@ const AGENT_PENDING_ACTION = "note_pending";
 const AGENT_METADATA_ACTION = "pending_create_note";
 const AGENT_ACTIONS_TRANSITION_MS = 180;
 
-function makeNoteTitle(text: string, fallback = "AI笔记") {
-	const normalized = String(text || "").trim().replace(/\s+/g, " ");
-	const chars = Array.from(normalized).slice(0, 18).join("");
-	return chars ? `${chars}${normalized.length > 18 ? "..." : ""}` : fallback;
+async function generateNoteTitleOrFallback(
+	apiBase: string,
+	content: string,
+	fallback: string
+) {
+	try {
+		const { title } = await generateChatTitle(apiBase, content);
+		return title.trim() || fallback;
+	} catch (error) {
+		console.error(error);
+		return fallback;
+	}
 }
 
 async function copyText(text: string) {
@@ -238,6 +247,11 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 				const payload = event.data.payload;
 				if (action === "list") {
 					respond({ ok: true, data: await listNotes(apiBase) });
+					return;
+				}
+				if (action === "title") {
+					const content = typeof payload?.content === "string" ? payload.content : "";
+					respond({ ok: true, data: await generateChatTitle(apiBase, content) });
 					return;
 				}
 				if (action === "create") {
@@ -771,15 +785,17 @@ function ChatThreadView({
 				return;
 			}
 
-			void createNote({ title: makeNoteTitle(text), markdown: text }, apiBase)
-				.then(() => {
+			void (async () => {
+				try {
+					const title = await generateNoteTitleOrFallback(apiBase, text, "新笔记");
+					await createNote({ title, markdown: text }, apiBase);
 					notifyNotesChanged({ animateSave: true });
 					showToast("已存入笔记");
-				})
-				.catch((error) => {
+				} catch (error) {
 					console.error(error);
 					showToast("保存失败");
-				});
+				}
+			})();
 			setSelectionToolbar(null);
 		},
 		[apiBase, selectionText, selectionToolbar?.text, showToast]
@@ -972,7 +988,8 @@ function MessageBubble({
 		}
 		setBusyAction("note");
 		try {
-			await createNote({ title: makeNoteTitle(text, "AI回复"), markdown: text }, apiBase);
+			const title = await generateNoteTitleOrFallback(apiBase, text, "AI笔记");
+			await createNote({ title, markdown: text }, apiBase);
 			notifyNotesChanged({ animateSave: true });
 			onToast("回复已存为笔记");
 		} catch (error) {
@@ -990,7 +1007,8 @@ function MessageBubble({
 		setBusyAction("summary");
 		try {
 			const { summary } = await summarizeChatContent(apiBase, text);
-			await createNote({ title: makeNoteTitle(summary, "AI概要"), markdown: summary }, apiBase);
+			const title = await generateNoteTitleOrFallback(apiBase, summary, "AI概要");
+			await createNote({ title, markdown: summary }, apiBase);
 			notifyNotesChanged({ animateSave: true });
 			onToast("概要已存为笔记");
 		} catch (error) {

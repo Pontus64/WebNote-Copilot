@@ -29,6 +29,7 @@ import {
 	updateNote as updateBackendNote,
 	uploadNoteAsset as uploadBackendNoteAsset,
 } from "./notesApi";
+import { generateChatTitle } from "./apiClient";
 import { buildNoteExportBundle, downloadBlob } from "./exportNote";
 import {
 	MarkdownNoteEditor,
@@ -72,6 +73,7 @@ type SwipeState = {
 
 type NoteBridgeRequest =
 	| { action: "list"; payload?: undefined }
+	| { action: "title"; payload: { content: string } }
 	| { action: "create"; payload: { note: DraftNote } }
 	| { action: "update"; payload: { id: string; note: DraftNote } }
 	| { action: "delete"; payload: { id: string } }
@@ -92,12 +94,6 @@ type PendingBridgeReady = {
 	reject: (reason?: unknown) => void;
 	timer: number;
 };
-
-function makeSelectionTitle(text: string) {
-	const normalized = String(text || "").trim().replace(/\s+/g, " ");
-	const prefix = Array.from(normalized).slice(0, 10).join("") || "新笔记";
-	return `${prefix}...`;
-}
 
 function noteLoadErrorMessage(error: unknown) {
 	const message = error instanceof Error ? error.message : String(error || "");
@@ -586,6 +582,34 @@ function FloatingNotesCore(
 		[apiBase, requestNotesBridge, useNotesBridge]
 	);
 
+	const generateCurrentNoteTitle = useCallback(
+		async (content: string) => {
+			if (useNotesBridge()) {
+				const result = await requestNotesBridge<{ title: string }>({
+					action: "title",
+					payload: { content },
+				});
+				return result.title;
+			}
+			const result = await generateChatTitle(apiBase, content);
+			return result.title;
+		},
+		[apiBase, requestNotesBridge, useNotesBridge]
+	);
+
+	const generateCurrentNoteTitleOrFallback = useCallback(
+		async (content: string, fallback: string) => {
+			try {
+				const title = await generateCurrentNoteTitle(content);
+				return title.trim() || fallback;
+			} catch (error) {
+				console.error(error);
+				return fallback;
+			}
+		},
+		[generateCurrentNoteTitle]
+	);
+
 	const uploadCurrentNoteAsset = useCallback(
 		async (id: string, file: File): Promise<NoteAsset> => {
 			if (useNotesBridge()) {
@@ -998,7 +1022,8 @@ function FloatingNotesCore(
 		playSaveAnimation(() => {
 			void (async () => {
 				try {
-					await createCurrentNote({ title: makeSelectionTitle(content), markdown: content });
+					const title = await generateCurrentNoteTitleOrFallback(content, "新笔记");
+					await createCurrentNote({ title, markdown: content });
 					await fetchNotes();
 					showToast("已存入笔记");
 				} catch (error) {

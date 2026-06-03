@@ -8,7 +8,7 @@
 - AI 回复下方的“总结概要”
 - 聊天页/外部浮窗选中文本后的“笔记”
 
-这些入口现在的标题生成方式偏机械：直接截取正文前若干字，再追加省略号。目标优化是：笔记正文保持原本内容不变，但标题改为由 AI 根据正文生成一个 2-10 字短标题，并且不再出现 `...` 或 `…`。
+这些入口现在的标题生成方式偏机械：直接截取正文前若干字，再追加省略号。目标优化是：笔记正文保持原本内容不变，但标题改为由 AI 根据正文生成一个 30 字以内的短标题，并且不再出现 `...` 或 `…`。
 
 这个方案只处理“用户已经明确点击存笔记”的标题生成，不处理“用户在聊天中说一句话后由 AI 自动创建笔记”的 agent 能力。自动创建笔记能力仍归属 `docs/AI聊天自动生成笔记Agent技术方案.md`。
 
@@ -50,7 +50,7 @@
 
 - 笔记正文仍然是完整 AI 回复内容。
 - 标题由 AI 根据完整回复生成，例如 `标题生成优化`。
-- 标题长度控制在 2-10 字。
+- 标题长度控制在 30 字以内。
 - 标题不包含省略号、引号、Markdown 标记或 `标题:` 前缀。
 
 ### 总结概要
@@ -125,7 +125,7 @@ Content-Type: application/json
 Generate a concise note title for the user's text.
 Use the same language as the text.
 Return only the title.
-The title must be 2-10 characters.
+The title must be 30 characters or fewer.
 Do not use quotes, markdown, punctuation, labels, or ellipses.
 Do not add facts that are not in the text.
 ```
@@ -141,8 +141,8 @@ user message 直接传入正文内容。
 - 去掉首尾引号、反引号、书名号、括号。
 - 去掉句末标点和省略号：`.`、`。`、`!`、`！`、`?`、`？`、`...`、`…`。
 - 合并多余空白。
-- 使用 `Array.from()` 按 Unicode 字符截断到 10 个字符。
-- 清洗后为空或少于 2 个字符时视为失败，返回 502。
+- 使用 `Array.from()` 按 Unicode 字符截断到 30 个字符。
+- 清洗后为空时视为失败，返回 502。
 
 后端返回的 `title` 必须已经是最终可直接入库的标题。前端不再追加省略号。
 
@@ -341,7 +341,7 @@ await createCurrentNote({ title, markdown: content });
 
 这次改动会触达 `client/shared/FloatingNotesCore.tsx`，外部 embed 和油猴脚本依赖构建后的 widget bundle。只改源码不够，需要同步分发版本。
 
-版本从当前 `1.0.22` bump 到 `1.0.23`：
+版本从当前 `1.0.23` bump 到 `1.0.24`：
 
 - `client/widget/entry.tsx`
 - `public/embed/inject-floating-notes.js`
@@ -358,9 +358,9 @@ npm run build:widget
 需要确认：
 
 - `public/embed/floating-notes-widget.js` 已更新。
-- `public/embed/inject-floating-notes.js` 的 `WIDGET_VERSION` 是 `1.0.23`。
-- `public/floating-notes.user.js` 的 `@version` 和 `@require ?v=` 都是 `1.0.23`。
-- 浏览器实际加载的 `window.FloatingNotes.version` 是 `1.0.23`。
+- `public/embed/inject-floating-notes.js` 的 `WIDGET_VERSION` 是 `1.0.24`。
+- `public/floating-notes.user.js` 的 `@version` 和 `@require ?v=` 都是 `1.0.24`。
+- 浏览器实际加载的 `window.FloatingNotes.version` 是 `1.0.24`。
 
 ## Test Plan
 
@@ -374,7 +374,7 @@ npm run build:widget
 - 如果本地环境存在 `DEEPSEEK_API_KEY`，增加可选真实接口测试，断言：
   - 返回 200。
   - `title` 为非空字符串。
-  - `Array.from(title).length` 在 2-10 之间。
+  - `Array.from(title).length` 大于 0 且不超过 30。
   - 不包含 `...` 或 `…`。
 
 ### 前端类型与构建
@@ -401,12 +401,12 @@ npm test
 - 普通网页通过 `inject-floating-notes.js` 加载浮窗。
 - 选中文本点击“笔记”，保存成功。
 - 新笔记标题不是正文截断，也不带省略号。
-- DevTools 中确认实际加载的 widget URL 带 `v=1.0.23`。
+- DevTools 中确认实际加载的 widget URL 带 `v=1.0.24`。
 
 油猴脚本：
 
 - 更新或重新安装 `floating-notes.user.js`。
-- 确认 `@version` 和 `@require` 都是 `1.0.23`。
+- 确认 `@version` 和 `@require` 都是 `1.0.24`。
 - 选词存笔记行为和 embed 一致。
 
 ## Failure Handling
