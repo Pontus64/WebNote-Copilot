@@ -1907,7 +1907,7 @@ svg {
 	width: 100%;
 	height: 72px;
 	background: var(--dst-bg-2);
-	padding: 14px 18px;
+	padding: 14px 54px 14px 18px;
 	cursor: pointer;
 	outline: none;
 	transition: transform 0.25s ease;
@@ -1917,6 +1917,11 @@ svg {
 	display: block;
 }
 
+.note-item,
+.note-more-btn {
+	transition: transform 0.25s ease;
+}
+
 .note-item:focus-visible {
 	outline: 2px solid rgba(99, 102, 241, 0.7);
 	outline-offset: -2px;
@@ -1924,6 +1929,47 @@ svg {
 
 .swipe-item.open .note-item {
 	transform: translateX(-288px);
+}
+
+.swipe-item.open .note-more-btn {
+	transform: translateX(-288px) translateY(-50%);
+}
+
+.note-more-btn {
+	position: absolute;
+	right: 8px;
+	top: 50%;
+	width: 36px;
+	height: 36px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	cursor: pointer;
+	transform: translateY(-50%);
+	transition: background 0.14s, opacity 0.14s, transform 0.25s ease;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.note-more-btn:hover,
+.note-more-btn:focus-visible,
+.swipe-item.open .note-more-btn {
+	background: rgba(148, 163, 184, 0.14);
+}
+
+.note-more-btn:focus-visible {
+	outline: 2px solid rgba(99, 102, 241, 0.7);
+	outline-offset: -2px;
+}
+
+.note-more-btn img {
+	width: 20px;
+	height: 20px;
+	display: block;
+	pointer-events: none;
 }
 
 .note-title {

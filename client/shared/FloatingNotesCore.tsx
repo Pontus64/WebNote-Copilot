@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
+	type MouseEvent as ReactMouseEvent,
 	type PointerEvent as ReactPointerEvent,
 	type TouchEvent as ReactTouchEvent,
 	forwardRef,
@@ -346,6 +347,10 @@ function isMobileViewport() {
 	return window.matchMedia("(max-width: 767px), (pointer: coarse)").matches;
 }
 
+function shouldStartNoteSwipe(event: ReactPointerEvent<HTMLDivElement>) {
+	return event.pointerType === "touch" || window.matchMedia("(pointer: coarse)").matches;
+}
+
 function isDetailEditingTarget(target: EventTarget | null) {
 	if (!(target instanceof Element)) {
 		return false;
@@ -402,6 +407,8 @@ function FloatingNotesCore(
 	const ensureUploadNotePromiseRef = useRef<Promise<string> | null>(null);
 	const toolbarPointerBlockUntilRef = useRef(0);
 	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
+	const assetBase = apiBase.replace(/\/$/, "") || window.location.origin;
+	const moreIconSrc = `${assetBase}/more_light.svg`;
 
 	const hasUnsavedDetail =
 		detailOpen &&
@@ -907,6 +914,9 @@ function FloatingNotesCore(
 	const open = (page: Page = "notes") => {
 		setActivePage(page);
 		setDrawerOpen(true);
+		if (page !== "notes") {
+			setSwipedNoteId(null);
+		}
 		if (page === "notes") {
 			void fetchNotes();
 		}
@@ -929,6 +939,7 @@ function FloatingNotesCore(
 		}
 		setDrawerOpen(false);
 		setDetailOpen(false);
+		setSwipedNoteId(null);
 	};
 
 	const openDrawerWithText = (text: string) => {
@@ -1242,6 +1253,7 @@ function FloatingNotesCore(
 		if (!confirmDiscardDetailChanges()) {
 			return;
 		}
+		setSwipedNoteId(null);
 		currentNoteIdRef.current = null;
 		detailTitleRef.current = "";
 		setCurrentNoteId(null);
@@ -1378,6 +1390,10 @@ function FloatingNotesCore(
 	};
 
 	const handleNoteSwipeStart = (note: Note, event: ReactPointerEvent<HTMLDivElement>) => {
+		if (!shouldStartNoteSwipe(event)) {
+			swipeRef.current = null;
+			return;
+		}
 		swipeRef.current = {
 			noteId: note.id,
 			startX: event.clientX,
@@ -1442,6 +1458,23 @@ function FloatingNotesCore(
 		swipeRef.current = null;
 	};
 
+	const handleActionClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+		event.stopPropagation();
+	};
+
+	const handleMoreClick = (note: Note, event: ReactMouseEvent<HTMLButtonElement>) => {
+		event.preventDefault();
+		event.stopPropagation();
+		swipeRef.current = null;
+		blockedNoteClickRef.current = note.id;
+		window.setTimeout(() => {
+			if (blockedNoteClickRef.current === note.id) {
+				blockedNoteClickRef.current = "";
+			}
+		}, 0);
+		setSwipedNoteId((current) => (current === note.id ? null : note.id));
+	};
+
 	const askWithNote = (note: Note) => {
 		const text = (note.markdown || note.title || "").trim();
 		if (!text) {
@@ -1455,6 +1488,10 @@ function FloatingNotesCore(
 	const handleNoteClick = (note: Note) => {
 		if (blockedNoteClickRef.current === note.id) {
 			blockedNoteClickRef.current = "";
+			return;
+		}
+		if (swipedNoteId === note.id) {
+			setSwipedNoteId(null);
 			return;
 		}
 		const selectedText = window.getSelection()?.toString().trim() ?? "";
@@ -1623,6 +1660,7 @@ function FloatingNotesCore(
 										if (!confirmDiscardDetailChanges()) {
 											return;
 										}
+										setSwipedNoteId(null);
 										setDetailOpen(false);
 										setActivePage("chat");
 									}}
@@ -1647,18 +1685,25 @@ function FloatingNotesCore(
 											onPointerUp={() => finishNoteSwipe(note)}
 											onPointerCancel={cancelNoteSwipe}
 										>
-											<div className="actions">
+											<div
+												className="actions"
+												onPointerDown={(event) => event.stopPropagation()}
+											>
 												<button
 													type="button"
 													className="ask-btn"
-													onClick={() => askWithNote(note)}
+													onClick={(event) => {
+														handleActionClick(event);
+														askWithNote(note);
+													}}
 												>
 													问AI
 												</button>
 												<button
 													type="button"
 													className="copy-btn"
-													onClick={() => {
+													onClick={(event) => {
+														handleActionClick(event);
 														setSwipedNoteId(null);
 														void copyText(note.markdown || "")
 															.then(() => showToast("复制成功"))
@@ -1670,7 +1715,8 @@ function FloatingNotesCore(
 												<button
 													type="button"
 													className="export-btn"
-													onClick={() => {
+													onClick={(event) => {
+														handleActionClick(event);
 														setSwipedNoteId(null);
 														void exportNote(note);
 													}}
@@ -1680,7 +1726,8 @@ function FloatingNotesCore(
 												<button
 													type="button"
 													className="delete-btn"
-													onClick={() => {
+													onClick={(event) => {
+														handleActionClick(event);
 														setSwipedNoteId(null);
 														void removeNote(note);
 													}}
@@ -1698,6 +1745,16 @@ function FloatingNotesCore(
 												<div className="note-title">{note.title || "未命名"}</div>
 												<div className="note-desc">{note.excerpt || note.markdown || ""}</div>
 											</div>
+											<button
+												type="button"
+												className="note-more-btn"
+												aria-label="更多操作"
+												aria-expanded={swipedNoteId === note.id}
+												onPointerDown={(event) => event.stopPropagation()}
+												onClick={(event) => handleMoreClick(note, event)}
+											>
+												<img src={moreIconSrc} alt="" aria-hidden="true" />
+											</button>
 										</div>
 									))
 								: null}
