@@ -66,6 +66,23 @@ export function listNoteAssets(noteId: string, apiBase = ""): Promise<NoteAsset[
 	return request<NoteAsset[]>(apiBase, `/api/notes/${encodeURIComponent(noteId)}/assets`);
 }
 
+export async function downloadNoteAssetContent(
+	noteId: string,
+	assetId: string,
+	apiBase = ""
+): Promise<ArrayBuffer> {
+	const response = await fetchWithAuth(
+		apiBase,
+		`/api/notes/${encodeURIComponent(noteId)}/assets/${encodeURIComponent(assetId)}/content`
+	);
+
+	if (!response.ok) {
+		throw new Error(await readApiError(response));
+	}
+
+	return response.arrayBuffer();
+}
+
 export function deleteNoteAsset(
 	noteId: string,
 	assetId: string,

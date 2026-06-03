@@ -62,6 +62,8 @@ import {
 import {
 	createNote,
 	deleteNote,
+	downloadNoteAssetContent,
+	listNoteAssets,
 	listNotes,
 	updateNote,
 	uploadNoteAsset,
@@ -268,6 +270,26 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 						throw new Error("file is required");
 					}
 					respond({ ok: true, data: await uploadNoteAsset(noteId, file, apiBase) });
+					return;
+				}
+				if (action === "listAssets") {
+					const noteId = typeof payload?.id === "string" ? payload.id : "";
+					if (!noteId) {
+						throw new Error("note id is required");
+					}
+					respond({ ok: true, data: await listNoteAssets(noteId, apiBase) });
+					return;
+				}
+				if (action === "downloadAsset") {
+					const noteId = typeof payload?.noteId === "string" ? payload.noteId : "";
+					const assetId = typeof payload?.assetId === "string" ? payload.assetId : "";
+					if (!noteId || !assetId) {
+						throw new Error("asset id is required");
+					}
+					respond({
+						ok: true,
+						data: await downloadNoteAssetContent(noteId, assetId, apiBase),
+					});
 					return;
 				}
 				throw new Error("unknown notes action");

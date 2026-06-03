@@ -1820,6 +1820,7 @@ svg {
 
 .ask-btn,
 .copy-btn,
+.export-btn,
 .delete-btn {
 	width: 72px;
 	display: flex;
@@ -1840,6 +1841,10 @@ svg {
 
 .copy-btn {
 	background: var(--dst-green);
+}
+
+.export-btn {
+	background: #0ea5e9;
 }
 
 .delete-btn {
@@ -1867,7 +1872,7 @@ svg {
 }
 
 .swipe-item.open .note-item {
-	transform: translateX(-216px);
+	transform: translateX(-288px);
 }
 
 .note-title {
@@ -1987,7 +1992,8 @@ svg {
 	color: var(--dst-text-3);
 }
 
-.save-btn {
+.save-btn,
+.detail-export-btn {
 	height: 34px;
 	padding: 0 14px;
 	border: 0;
@@ -1997,6 +2003,20 @@ svg {
 	cursor: pointer;
 	font-size: 13px;
 	font-weight: 760;
+}
+
+.detail-export-btn {
+	width: 34px;
+	padding: 0;
+	background: var(--dst-bg-3);
+	color: var(--dst-text-2);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.detail-export-btn:hover {
+	color: var(--dst-text);
 }
 
 .save-btn:disabled {
@@ -2549,6 +2569,7 @@ svg {
 	}
 
 	#dst-drawer.detail-editing .save-btn,
+	#dst-drawer.detail-editing .detail-export-btn,
 	#dst-drawer.detail-editing .back-btn {
 		height: 32px;
 	}

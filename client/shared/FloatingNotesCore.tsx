@@ -1,6 +1,7 @@
 import {
 	Bot,
 	Copy,
+	FileDown,
 	FilePlus2,
 	MessageSquareText,
 	Moon,
@@ -22,10 +23,13 @@ import {
 import {
 	createNote as createBackendNote,
 	deleteNote as deleteBackendNote,
+	downloadNoteAssetContent as downloadBackendNoteAssetContent,
+	listNoteAssets as listBackendNoteAssets,
 	listNotes as listBackendNotes,
 	updateNote as updateBackendNote,
 	uploadNoteAsset as uploadBackendNoteAsset,
 } from "./notesApi";
+import { buildNoteExportBundle, downloadBlob } from "./exportNote";
 import {
 	MarkdownNoteEditor,
 	type MarkdownNoteEditorHandle,
@@ -71,7 +75,9 @@ type NoteBridgeRequest =
 	| { action: "create"; payload: { note: DraftNote } }
 	| { action: "update"; payload: { id: string; note: DraftNote } }
 	| { action: "delete"; payload: { id: string } }
-	| { action: "uploadAsset"; payload: { id: string; file: File } };
+	| { action: "uploadAsset"; payload: { id: string; file: File } }
+	| { action: "listAssets"; payload: { id: string } }
+	| { action: "downloadAsset"; payload: { noteId: string; assetId: string } };
 
 type PendingBridgeRequest = {
 	resolve: (value: unknown) => void;
@@ -517,10 +523,11 @@ function FloatingNotesCore(
 			const id = (bridgeRequestIdRef.current += 1);
 			const origin = new URL(chatFrameSrc).origin;
 			const result = new Promise<T>((resolve, reject) => {
+				const timeoutMs = request.action === "downloadAsset" ? 30000 : 5000;
 				const timer = window.setTimeout(() => {
 					pendingBridgeRequestsRef.current.delete(id);
 					reject(new Error("AI 聊天页未响应"));
-				}, 5000);
+				}, timeoutMs);
 				pendingBridgeRequestsRef.current.set(id, {
 					resolve: resolve as (value: unknown) => void,
 					reject,
@@ -588,6 +595,32 @@ function FloatingNotesCore(
 				});
 			}
 			return uploadBackendNoteAsset(id, file, apiBase);
+		},
+		[apiBase, requestNotesBridge, useNotesBridge]
+	);
+
+	const listCurrentNoteAssets = useCallback(
+		async (id: string): Promise<NoteAsset[]> => {
+			if (useNotesBridge()) {
+				return requestNotesBridge<NoteAsset[]>({
+					action: "listAssets",
+					payload: { id },
+				});
+			}
+			return listBackendNoteAssets(id, apiBase);
+		},
+		[apiBase, requestNotesBridge, useNotesBridge]
+	);
+
+	const downloadCurrentNoteAssetContent = useCallback(
+		async (noteId: string, assetId: string): Promise<ArrayBuffer> => {
+			if (useNotesBridge()) {
+				return requestNotesBridge<ArrayBuffer>({
+					action: "downloadAsset",
+					payload: { noteId, assetId },
+				});
+			}
+			return downloadBackendNoteAssetContent(noteId, assetId, apiBase);
 		},
 		[apiBase, requestNotesBridge, useNotesBridge]
 	);
@@ -1102,12 +1135,12 @@ function FloatingNotesCore(
 		[createCurrentNote]
 	);
 
-	const waitForPendingAssetUploads = useCallback(async () => {
+	const waitForPendingAssetUploads = useCallback(async (message = "附件上传中，保存将在上传完成后继续") => {
 		const pendingUploads = Array.from(pendingAssetUploadsRef.current);
 		if (!pendingUploads.length) {
 			return;
 		}
-		showToast("附件上传中，保存将在上传完成后继续");
+		showToast(message);
 		await Promise.allSettled(pendingUploads);
 	}, [showToast]);
 
@@ -1245,6 +1278,61 @@ function FloatingNotesCore(
 		} catch (error) {
 			console.error(error);
 			showToast("保存失败");
+		}
+	};
+
+	const exportNote = async (note: Pick<Note, "id" | "title" | "markdown">) => {
+		try {
+			const markdown = note.markdown || "";
+			if (containsPendingAssetReference(markdown)) {
+				showToast("附件未完成，稍后再导出");
+				return;
+			}
+			showToast("导出中...");
+			const assets = await listCurrentNoteAssets(note.id);
+			const bundle = await buildNoteExportBundle({
+				title: note.title,
+				markdown,
+				assets,
+				fetchAssetContent: (asset) => downloadCurrentNoteAssetContent(note.id, asset.id),
+			});
+			downloadBlob(bundle.blob, bundle.fileName);
+			showToast("已导出");
+		} catch (error) {
+			console.error(error);
+			const message = error instanceof Error ? error.message : String(error || "");
+			showToast(/asset|附件|content|download|fetch|request/i.test(message) ? "附件下载失败" : "导出失败");
+		}
+	};
+
+	const exportDetailNote = async () => {
+		try {
+			await waitForPendingAssetUploads("附件上传中，导出将在上传完成后继续");
+			const markdown = markdownEditorRef.current?.getMarkdown() ?? detailMarkdown;
+			if (containsPendingAssetReference(markdown)) {
+				showToast("附件未完成，稍后再导出");
+				return;
+			}
+			if (!currentNoteId) {
+				showToast("导出中...");
+				const bundle = await buildNoteExportBundle({
+					title: detailTitle,
+					markdown,
+					assets: [],
+					fetchAssetContent: () => Promise.reject(new Error("asset not found")),
+				});
+				downloadBlob(bundle.blob, bundle.fileName);
+				showToast("已导出");
+				return;
+			}
+			await exportNote({
+				id: currentNoteId,
+				title: detailTitle,
+				markdown,
+			});
+		} catch (error) {
+			console.error(error);
+			showToast("导出失败");
 		}
 	};
 
@@ -1556,6 +1644,16 @@ function FloatingNotesCore(
 												</button>
 												<button
 													type="button"
+													className="export-btn"
+													onClick={() => {
+														setSwipedNoteId(null);
+														void exportNote(note);
+													}}
+												>
+													导出
+												</button>
+												<button
+													type="button"
 													className="delete-btn"
 													onClick={() => {
 														setSwipedNoteId(null);
@@ -1620,6 +1718,15 @@ function FloatingNotesCore(
 									onTouchEnd={scheduleSelectionToolbar}
 									placeholder="输入标题"
 								/>
+								<button
+									type="button"
+									className="detail-export-btn"
+									title="导出"
+									aria-label="导出笔记"
+									onClick={() => void exportDetailNote()}
+								>
+									<FileDown aria-hidden="true" size={16} />
+								</button>
 								<button
 									type="button"
 									className="save-btn"
