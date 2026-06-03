@@ -9,9 +9,11 @@ import {
 } from "@assistant-ui/react";
 import {
 	Bot,
+	Check,
 	ChevronLeft,
 	Copy,
 	FilePlus2,
+	LoaderCircle,
 	LogOut,
 	Menu,
 	MessageSquarePlus,
@@ -53,6 +55,7 @@ import {
 	listThreads,
 	renameThread,
 	readApiError,
+	resolveAgentNote,
 	sendChatMessage,
 	summarizeChatContent,
 } from "../shared/apiClient";
@@ -84,6 +87,11 @@ type AiSelectionToolbar = {
 };
 
 const EMPTY_MESSAGES: ThreadMessageLike[] = [];
+const AGENT_ACTION_HEADER = "X-Floating-Notes-Action";
+const AGENT_MESSAGE_ID_HEADER = "X-Floating-Notes-Message-Id";
+const AGENT_PENDING_ACTION = "note_pending";
+const AGENT_METADATA_ACTION = "pending_create_note";
+const AGENT_ACTIONS_TRANSITION_MS = 180;
 
 function makeNoteTitle(text: string, fallback = "AI笔记") {
 	const normalized = String(text || "").trim().replace(/\s+/g, " ");
@@ -368,6 +376,19 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 					return;
 				}
 
+				const agentAction = response.headers.get(AGENT_ACTION_HEADER) || "";
+				const agentMessageId = response.headers.get(AGENT_MESSAGE_ID_HEADER) || "";
+				const agentMetadata =
+					agentAction === AGENT_PENDING_ACTION && agentMessageId
+						? {
+								custom: {
+									agentAction: AGENT_METADATA_ACTION,
+									agentNoteStatus: "pending",
+									messageId: agentMessageId,
+									threadId,
+								},
+							}
+						: undefined;
 				const reader = response.body.getReader();
 				const decoder = new TextDecoder();
 				let text = "";
@@ -381,6 +402,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 						status: done
 							? { type: "complete", reason: "stop" }
 							: { type: "running" },
+						metadata: agentMetadata,
 					};
 				}
 
@@ -524,6 +546,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 				<ChatRuntime
 					key={runtimeKey}
 					apiBase={apiBase}
+					activeThreadId={activeThreadId}
 					chatModel={chatModel}
 					initialMessages={initialMessages}
 					pendingSelection={pendingSelection}
@@ -535,11 +558,13 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 
 function ChatRuntime({
 	apiBase,
+	activeThreadId,
 	chatModel,
 	initialMessages,
 	pendingSelection,
 }: {
 	apiBase: string;
+	activeThreadId: string | null;
 	chatModel: ChatModelAdapter;
 	initialMessages: readonly ThreadMessageLike[];
 	pendingSelection: PendingSelectionMessage | null;
@@ -548,16 +573,22 @@ function ChatRuntime({
 
 	return (
 		<AssistantRuntimeProvider runtime={runtime}>
-			<ChatThreadView apiBase={apiBase} pendingSelection={pendingSelection} />
+			<ChatThreadView
+				apiBase={apiBase}
+				activeThreadId={activeThreadId}
+				pendingSelection={pendingSelection}
+			/>
 		</AssistantRuntimeProvider>
 	);
 }
 
 function ChatThreadView({
 	apiBase,
+	activeThreadId,
 	pendingSelection,
 }: {
 	apiBase: string;
+	activeThreadId: string | null;
 	pendingSelection: PendingSelectionMessage | null;
 }) {
 	const thread = useThread();
@@ -793,6 +824,7 @@ function ChatThreadView({
 						<MessageBubble
 							key={message.id}
 							apiBase={apiBase}
+							activeThreadId={activeThreadId}
 							message={message}
 							isStreaming={
 								message.role === "assistant" &&
@@ -874,18 +906,37 @@ function ChatThreadView({
 
 function MessageBubble({
 	apiBase,
+	activeThreadId,
 	isStreaming,
 	message,
 	onToast,
 }: {
 	apiBase: string;
+	activeThreadId: string | null;
 	isStreaming: boolean;
 	message: ThreadMessage;
 	onToast: (message: string) => void;
 }) {
 	const text = getMessageText(message);
 	const isUser = message.role === "user";
+	const customMetadata = getCustomMetadata(message);
+	const initialAgentPending =
+		!isUser &&
+		customMetadata.agentAction === AGENT_METADATA_ACTION &&
+		customMetadata.agentNoteStatus === "pending";
+	const agentMessageId =
+		normalizeMetadataString(customMetadata.messageId) || (initialAgentPending ? message.id : "");
+	const agentThreadId = normalizeMetadataString(customMetadata.threadId) || activeThreadId || "";
 	const [busyAction, setBusyAction] = useState<"note" | "summary" | null>(null);
+	const [agentBusy, setAgentBusy] = useState<"confirm" | null>(null);
+	const [agentPanelState, setAgentPanelState] = useState<"confirm" | "resolving" | "normal">(
+		initialAgentPending ? "confirm" : "normal"
+	);
+
+	useEffect(() => {
+		setAgentPanelState(initialAgentPending ? "confirm" : "normal");
+		setAgentBusy(null);
+	}, [initialAgentPending, message.id]);
 
 	const copyReply = useCallback(() => {
 		void copyText(text)
@@ -928,6 +979,43 @@ function MessageBubble({
 		}
 	}, [apiBase, busyAction, onToast, text]);
 
+	const transitionAgentActionsToNormal = useCallback(() => {
+		setAgentPanelState("resolving");
+		window.setTimeout(() => setAgentPanelState("normal"), AGENT_ACTIONS_TRANSITION_MS);
+	}, []);
+
+	const confirmAgentNote = useCallback(async () => {
+		if (!agentThreadId || !agentMessageId || agentBusy) {
+			return;
+		}
+		setAgentBusy("confirm");
+		try {
+			await resolveAgentNote(apiBase, agentThreadId, agentMessageId, "confirm");
+			notifyNotesChanged({ animateSave: true });
+			onToast("笔记已生成");
+			setAgentBusy(null);
+			transitionAgentActionsToNormal();
+		} catch (error) {
+			console.error(error);
+			onToast("生成失败");
+			setAgentBusy(null);
+		}
+	}, [agentBusy, agentMessageId, agentThreadId, apiBase, onToast, transitionAgentActionsToNormal]);
+
+	const dismissAgentNote = useCallback(() => {
+		if (agentBusy) {
+			return;
+		}
+		transitionAgentActionsToNormal();
+		if (!agentThreadId || !agentMessageId) {
+			return;
+		}
+		void resolveAgentNote(apiBase, agentThreadId, agentMessageId, "dismiss").catch((error) => {
+			console.error(error);
+			onToast("操作同步失败");
+		});
+	}, [agentBusy, agentMessageId, agentThreadId, apiBase, onToast, transitionAgentActionsToNormal]);
+
 	return (
 		<article className={`ai-message ${isUser ? "user" : "assistant"}`}>
 			{!isUser ? (
@@ -944,25 +1032,55 @@ function MessageBubble({
 					)}
 				</div>
 				{!isUser && !isStreaming ? (
-					<div className="ai-message-actions" aria-label="AI 回复操作">
-						<button type="button" onClick={copyReply} disabled={!text || Boolean(busyAction)}>
-							<Copy aria-hidden="true" />
-							<span>复制回复</span>
-						</button>
-						<button type="button" onClick={() => void saveReply()} disabled={!text || Boolean(busyAction)}>
-							<FilePlus2 aria-hidden="true" />
-							<span>{busyAction === "note" ? "保存中" : "存为笔记"}</span>
-						</button>
-						<button
-							type="button"
-							className="summary"
-							onClick={() => void summarizeReply()}
-							disabled={!text || Boolean(busyAction)}
+					agentPanelState === "normal" ? (
+						<div className="ai-message-actions" aria-label="AI 回复操作">
+							<button type="button" onClick={copyReply} disabled={!text || Boolean(busyAction)}>
+								<Copy aria-hidden="true" />
+								<span>复制回复</span>
+							</button>
+							<button type="button" onClick={() => void saveReply()} disabled={!text || Boolean(busyAction)}>
+								<FilePlus2 aria-hidden="true" />
+								<span>{busyAction === "note" ? "保存中" : "存为笔记"}</span>
+							</button>
+							<button
+								type="button"
+								className="summary"
+								onClick={() => void summarizeReply()}
+								disabled={!text || Boolean(busyAction)}
+							>
+								<Sparkles aria-hidden="true" />
+								<span>{busyAction === "summary" ? "总结中" : "总结概要"}</span>
+							</button>
+						</div>
+					) : (
+						<div
+							className={`ai-message-actions agent-confirm ${agentPanelState === "resolving" ? "resolving" : ""}`}
+							aria-label="生成笔记确认"
 						>
-							<Sparkles aria-hidden="true" />
-							<span>{busyAction === "summary" ? "总结中" : "总结概要"}</span>
-						</button>
-					</div>
+							<button
+								type="button"
+								className="agent-confirm-primary"
+								onClick={() => void confirmAgentNote()}
+								disabled={Boolean(agentBusy) || !agentThreadId || !agentMessageId}
+							>
+								{agentBusy === "confirm" ? (
+									<LoaderCircle className="agent-spinner" aria-hidden="true" />
+								) : (
+									<Check aria-hidden="true" />
+								)}
+								<span>需要</span>
+							</button>
+							<button
+								type="button"
+								className="agent-confirm-secondary"
+								onClick={dismissAgentNote}
+								disabled={Boolean(agentBusy)}
+							>
+								<X aria-hidden="true" />
+								<span>不需要</span>
+							</button>
+						</div>
+					)
 				) : null}
 			</div>
 		</article>
@@ -1157,6 +1275,15 @@ function toThreadMessageLike(message: ChatMessage): ThreadMessageLike {
 function getLastUserText(messages: readonly ThreadMessage[]): string {
 	const last = [...messages].reverse().find((message) => message.role === "user");
 	return last ? getMessageText(last) : "";
+}
+
+function getCustomMetadata(message: ThreadMessage): Record<string, unknown> {
+	const custom = message.metadata.custom;
+	return custom && typeof custom === "object" && !Array.isArray(custom) ? custom : {};
+}
+
+function normalizeMetadataString(value: unknown): string {
+	return typeof value === "string" ? value : "";
 }
 
 function getMessageText(message: ThreadMessage): string {

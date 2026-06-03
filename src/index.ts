@@ -108,6 +108,16 @@ type ChatMessageRow = {
 	created_at: number;
 };
 
+type AgentAction =
+	| { action: "chat"; reply?: string }
+	| {
+			action: "create_note";
+			title: string;
+			markdown: string;
+			reply: string;
+			confidence?: number;
+	  };
+
 type EnvWithBindings = Env & {
 	wranglerdemo: D1Database;
 	ASSETS?: Fetcher;
@@ -123,6 +133,12 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const PASSWORD_ITERATIONS = 100_000;
 const SESSION_COOKIE_FALLBACK = "fn_session";
 const MAX_ASSET_UPLOAD_BYTES = 80 * 1024 * 1024;
+const MAX_AGENT_NOTE_TITLE_CHARS = 80;
+const MAX_AGENT_NOTE_MARKDOWN_CHARS = 30_000;
+const AGENT_CONTEXT_MESSAGE_LIMIT = 20;
+const AGENT_ACTION_HEADER = "X-Floating-Notes-Action";
+const AGENT_MESSAGE_ID_HEADER = "X-Floating-Notes-Message-Id";
+const AGENT_NOTE_ID_HEADER = "X-Floating-Notes-Note-Id";
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
 const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
@@ -426,6 +442,15 @@ async function handleChatRequest(
 			return json(await listThreadMessages(env.wranglerdemo, auth.user.id, threadId), 200, request);
 		}
 
+		if (
+			parts.length === 5 &&
+			parts[2] === "messages" &&
+			parts[4] === "agent-note" &&
+			request.method === "POST"
+		) {
+			return resolveAgentNoteAction(request, env, auth, threadId, parts[3]);
+		}
+
 		if (parts.length === 3 && parts[2] === "messages" && request.method === "POST") {
 			const body = await readJsonBody(request);
 			const content = normalizeText(body.content).trim();
@@ -487,12 +512,26 @@ async function getNote(
 
 async function createNote(request: Request, db: D1Database, userId: string): Promise<Response> {
 	const body = await readJsonBody(request);
-	const now = Date.now();
-	const note: Note = {
-		id: crypto.randomUUID(),
+	const note = await insertNote(db, userId, {
 		title: normalizeText(body.title),
 		markdown: normalizeText(body.markdown),
-		excerpt: makeMarkdownExcerpt(normalizeText(body.markdown)),
+	});
+
+	return json(note, 201, request);
+}
+
+async function insertNote(
+	db: D1Database,
+	userId: string,
+	input: { title: string; markdown: string }
+): Promise<Note> {
+	const now = Date.now();
+	const markdown = normalizeText(input.markdown);
+	const note: Note = {
+		id: crypto.randomUUID(),
+		title: normalizeText(input.title),
+		markdown,
+		excerpt: makeMarkdownExcerpt(markdown),
 		contentFormat: "markdown",
 		schemaVersion: 2,
 		assetCount: 0,
@@ -517,7 +556,7 @@ async function createNote(request: Request, db: D1Database, userId: string): Pro
 		)
 		.run();
 
-	return json(note, 201, request);
+	return note;
 }
 
 async function updateNote(
@@ -966,6 +1005,19 @@ async function streamAssistantReply(
 			.bind(makeThreadTitle(userContent), now, thread.id, auth.user.id),
 	]);
 
+	const messages = await listThreadMessages(env.wranglerdemo, auth.user.id, thread.id);
+	const agentAction = await routeAgentAction(env, messages, userContent);
+	if (agentAction.action === "create_note") {
+		return createPendingAgentNoteResponse(
+			request,
+			env,
+			auth,
+			thread.id,
+			assistantMessageId,
+			agentAction
+		);
+	}
+
 	const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
 	const writer = writable.getWriter();
 	const pump = pumpDeepSeekResponse(
@@ -995,6 +1047,330 @@ async function streamAssistantReply(
 			"Cache-Control": "no-store",
 		},
 	});
+}
+
+async function routeAgentAction(
+	env: EnvWithBindings,
+	messages: ChatMessage[],
+	userContent: string
+): Promise<AgentAction> {
+	if (!env.DEEPSEEK_API_KEY || !shouldConsiderAgentAction(userContent)) {
+		return { action: "chat" };
+	}
+
+	try {
+		const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
+			method: "POST",
+			headers: {
+				"Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+				stream: false,
+				thinking: { type: "disabled" },
+				messages: buildAgentRouterMessages(messages, userContent),
+			}),
+		});
+
+		if (!upstream.ok) {
+			const detail = await readLimitedText(upstream, 1800);
+			console.error(
+				JSON.stringify({
+					message: "agent intent request failed",
+					status: upstream.status,
+					detail,
+				})
+			);
+			return { action: "chat" };
+		}
+
+		const parsed = (await upstream.json().catch(() => null)) as {
+			choices?: Array<{ message?: { content?: unknown } }>;
+		} | null;
+		const content = parsed?.choices?.[0]?.message?.content;
+		if (typeof content !== "string") {
+			return { action: "chat" };
+		}
+		return normalizeAgentAction(content);
+	} catch (error) {
+		console.error(
+			JSON.stringify({
+				message: "agent intent failed",
+				error: error instanceof Error ? error.message : String(error),
+			})
+		);
+		return { action: "chat" };
+	}
+}
+
+async function createPendingAgentNoteResponse(
+	request: Request,
+	env: EnvWithBindings,
+	auth: AuthContext,
+	threadId: string,
+	assistantMessageId: string,
+	action: Extract<AgentAction, { action: "create_note" }>
+): Promise<Response> {
+	let metadata: Record<string, unknown> = {
+		agentAction: "pending_create_note",
+		agentNoteStatus: "pending",
+		title: action.title,
+		markdown: action.markdown,
+	};
+	if (typeof action.confidence === "number") {
+		metadata = {
+			...metadata,
+			confidence: action.confidence,
+		};
+	}
+
+	const reply = `需要我帮你生成一篇「${action.title || "AI笔记"}」的笔记吗？`;
+	const now = Date.now();
+	await env.wranglerdemo.batch([
+		env.wranglerdemo
+			.prepare(
+				`INSERT INTO auth_chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
+				 VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`
+			)
+			.bind(assistantMessageId, threadId, auth.user.id, reply, "complete", JSON.stringify(metadata), now),
+		env.wranglerdemo
+			.prepare(
+				`UPDATE auth_chat_threads
+				 SET updated_at = ?
+				 WHERE id = ? AND user_id = ?`
+			)
+			.bind(now, threadId, auth.user.id),
+	]);
+
+	const headers: HeadersInit = {
+		...corsHeaders(request),
+		...TEXT_HEADERS,
+		"Cache-Control": "no-store",
+	};
+	headers[AGENT_ACTION_HEADER] = "note_pending";
+	headers[AGENT_MESSAGE_ID_HEADER] = assistantMessageId;
+
+	return new Response(reply, { headers });
+}
+
+async function resolveAgentNoteAction(
+	request: Request,
+	env: EnvWithBindings,
+	auth: AuthContext,
+	threadId: string,
+	messageId: string
+): Promise<Response> {
+	const body = await readJsonBody(request);
+	const decision = normalizeAgentNoteDecision(body.decision);
+	if (!decision) {
+		throw new ApiError(400, "agent note decision is required");
+	}
+
+	const row = await env.wranglerdemo
+		.prepare(
+			`SELECT id, thread_id, role, content, status, metadata, created_at
+			 FROM auth_chat_messages
+			 WHERE id = ? AND thread_id = ? AND user_id = ? AND role = 'assistant'`
+		)
+		.bind(messageId, threadId, auth.user.id)
+		.first<ChatMessageRow>();
+
+	if (!row) {
+		throw new ApiError(404, "agent message not found");
+	}
+
+	const metadata = parseMetadata(row.metadata);
+	if (metadata.agentAction !== "pending_create_note") {
+		throw new ApiError(400, "agent note is not pending");
+	}
+
+	const currentStatus = normalizeText(metadata.agentNoteStatus) || "pending";
+	if (currentStatus === "created") {
+		const noteId = normalizeText(metadata.noteId);
+		const headers: HeadersInit = noteId
+			? {
+					[AGENT_ACTION_HEADER]: "note_created",
+					[AGENT_NOTE_ID_HEADER]: noteId,
+				}
+			: {};
+		return json({ status: "created", noteId }, 200, request, headers);
+	}
+	if (currentStatus === "dismissed") {
+		return json({ status: "dismissed" }, 200, request);
+	}
+	if (currentStatus !== "pending") {
+		throw new ApiError(400, "agent note is not pending");
+	}
+
+	if (decision === "dismiss") {
+		const nextMetadata: Record<string, unknown> = { ...metadata, agentNoteStatus: "dismissed" };
+		delete nextMetadata.markdown;
+		const dismissed = await updateAgentMessageMetadataIfUnchanged(
+			env.wranglerdemo,
+			auth.user.id,
+			threadId,
+			messageId,
+			row.metadata || "{}",
+			nextMetadata
+		);
+		if (!dismissed) {
+			return respondCurrentAgentNoteState(request, env.wranglerdemo, auth.user.id, threadId, messageId);
+		}
+		return json({ status: "dismissed" }, 200, request);
+	}
+
+	const markdown = truncateText(
+		normalizeText(metadata.markdown).trim(),
+		MAX_AGENT_NOTE_MARKDOWN_CHARS
+	);
+	if (!markdown) {
+		throw new ApiError(400, "agent note content is missing");
+	}
+
+	const title = makeAgentNoteTitle(normalizeText(metadata.title), markdown);
+	const creatingMetadata: Record<string, unknown> = { ...metadata, agentNoteStatus: "creating" };
+	const locked = await updateAgentMessageMetadataIfUnchanged(
+		env.wranglerdemo,
+		auth.user.id,
+		threadId,
+		messageId,
+		row.metadata || "{}",
+		creatingMetadata
+	);
+	if (!locked) {
+		return respondCurrentAgentNoteState(request, env.wranglerdemo, auth.user.id, threadId, messageId);
+	}
+
+	let note: Note;
+	try {
+		note = await insertNote(env.wranglerdemo, auth.user.id, { title, markdown });
+	} catch (error) {
+		await updateAgentMessageMetadata(env.wranglerdemo, auth.user.id, threadId, messageId, {
+			...metadata,
+			agentNoteStatus: "pending",
+			error: error instanceof Error ? error.message : String(error),
+		});
+		throw error;
+	}
+	const nextMetadata: Record<string, unknown> = {
+		...creatingMetadata,
+		agentNoteStatus: "created",
+		noteId: note.id,
+		noteTitle: note.title,
+	};
+	delete nextMetadata.markdown;
+	await updateAgentMessageMetadata(env.wranglerdemo, auth.user.id, threadId, messageId, nextMetadata);
+
+	return json(
+		{ status: "created", note },
+		200,
+		request,
+		{
+			[AGENT_ACTION_HEADER]: "note_created",
+			[AGENT_NOTE_ID_HEADER]: note.id,
+		}
+	);
+}
+
+async function respondCurrentAgentNoteState(
+	request: Request,
+	db: D1Database,
+	userId: string,
+	threadId: string,
+	messageId: string
+): Promise<Response> {
+	const row = await db
+		.prepare(
+			`SELECT id, thread_id, role, content, status, metadata, created_at
+			 FROM auth_chat_messages
+			 WHERE id = ? AND thread_id = ? AND user_id = ? AND role = 'assistant'`
+		)
+		.bind(messageId, threadId, userId)
+		.first<ChatMessageRow>();
+
+	if (!row) {
+		throw new ApiError(404, "agent message not found");
+	}
+
+	const metadata = parseMetadata(row.metadata);
+	const currentStatus = normalizeText(metadata.agentNoteStatus);
+	if (metadata.agentAction !== "pending_create_note") {
+		throw new ApiError(400, "agent note is not pending");
+	}
+	if (currentStatus === "created") {
+		const noteId = normalizeText(metadata.noteId);
+		const headers: HeadersInit = noteId
+			? {
+					[AGENT_ACTION_HEADER]: "note_created",
+					[AGENT_NOTE_ID_HEADER]: noteId,
+				}
+			: {};
+		return json({ status: "created", noteId }, 200, request, headers);
+	}
+	if (currentStatus === "dismissed") {
+		return json({ status: "dismissed" }, 200, request);
+	}
+	throw new ApiError(409, "agent note state changed");
+}
+
+async function updateAgentMessageMetadataIfUnchanged(
+	db: D1Database,
+	userId: string,
+	threadId: string,
+	messageId: string,
+	previousMetadata: string,
+	metadata: Record<string, unknown>
+): Promise<boolean> {
+	const now = Date.now();
+	const result = await db
+		.prepare(
+			`UPDATE auth_chat_messages
+			 SET metadata = ?
+			 WHERE id = ? AND thread_id = ? AND user_id = ? AND metadata = ?`
+		)
+		.bind(JSON.stringify(metadata), messageId, threadId, userId, previousMetadata)
+		.run();
+
+	if (Number(result.meta.changes ?? 0) === 0) {
+		return false;
+	}
+
+	await db
+		.prepare(
+			`UPDATE auth_chat_threads
+			 SET updated_at = ?
+			 WHERE id = ? AND user_id = ?`
+		)
+		.bind(now, threadId, userId)
+		.run();
+	return true;
+}
+
+async function updateAgentMessageMetadata(
+	db: D1Database,
+	userId: string,
+	threadId: string,
+	messageId: string,
+	metadata: Record<string, unknown>
+): Promise<void> {
+	const now = Date.now();
+	await db.batch([
+		db
+			.prepare(
+				`UPDATE auth_chat_messages
+				 SET metadata = ?
+				 WHERE id = ? AND thread_id = ? AND user_id = ?`
+			)
+			.bind(JSON.stringify(metadata), messageId, threadId, userId),
+		db
+			.prepare(
+				`UPDATE auth_chat_threads
+				 SET updated_at = ?
+				 WHERE id = ? AND user_id = ?`
+			)
+			.bind(now, threadId, userId),
+	]);
 }
 
 async function pumpDeepSeekResponse(
@@ -1124,6 +1500,124 @@ function buildDeepSeekMessages(messages: ChatMessage[], userContent: string) {
 		},
 		...filtered,
 	];
+}
+
+function buildAgentRouterMessages(messages: ChatMessage[], userContent: string) {
+	const filtered = messages
+		.filter((message) => message.role === "user" || message.role === "assistant")
+		.slice(-AGENT_CONTEXT_MESSAGE_LIMIT)
+		.map((message) => ({
+			role: message.role,
+			content: message.content,
+		}));
+
+	const last = filtered.at(-1);
+	if (!last || last.role !== "user" || last.content !== userContent) {
+		filtered.push({ role: "user", content: userContent });
+	}
+
+	return [
+		{
+			role: "system",
+			content:
+				"You are an intent router inside a chat-and-notes product. Return strict JSON only. Allowed actions: chat, create_note. Choose create_note only when the user wants to create, save, record, remember, organize, or turn the current discussion into a Markdown note, document, todo, or plan. If intent is unclear, choose chat. Never invent facts not present in the conversation. For create_note, return title, markdown, reply, and confidence from 0 to 1. For chat, return {\"action\":\"chat\"}. Use the user's language.",
+		},
+		...filtered,
+	];
+}
+
+function normalizeAgentAction(content: string): AgentAction {
+	const parsed = safeJsonParse(extractJsonObject(content) || content);
+	if (!isRecord(parsed)) {
+		return { action: "chat" };
+	}
+
+	if (parsed.action !== "create_note") {
+		return { action: "chat", reply: normalizeText(parsed.reply).trim() };
+	}
+
+	const markdown = truncateText(normalizeText(parsed.markdown).trim(), MAX_AGENT_NOTE_MARKDOWN_CHARS);
+	if (!markdown) {
+		return { action: "chat" };
+	}
+
+	const confidence = typeof parsed.confidence === "number" ? parsed.confidence : undefined;
+	if (typeof confidence === "number" && confidence < 0.55) {
+		return { action: "chat" };
+	}
+
+	const title = makeAgentNoteTitle(normalizeText(parsed.title), markdown);
+	const reply = normalizeText(parsed.reply).trim() || `已生成笔记：${title}`;
+	return {
+		action: "create_note",
+		title,
+		markdown,
+		reply,
+		confidence,
+	};
+}
+
+function shouldConsiderAgentAction(userContent: string): boolean {
+	const normalized = userContent.trim().toLowerCase();
+	if (!normalized) {
+		return false;
+	}
+	const triggers = [
+		"笔记",
+		"待办",
+		"待做",
+		"记下来",
+		"记录",
+		"保存",
+		"存一下",
+		"收一下",
+		"整理成",
+		"沉淀",
+		"落一篇",
+		"文档",
+		"方案",
+		"todo",
+		"note",
+		"save",
+		"record",
+		"remember",
+		"document",
+		"plan",
+	];
+	return triggers.some((trigger) => normalized.includes(trigger));
+}
+
+function makeAgentNoteTitle(rawTitle: string, markdown: string): string {
+	const normalized = rawTitle.trim().replace(/\s+/g, " ");
+	if (normalized) {
+		return truncateText(normalized, MAX_AGENT_NOTE_TITLE_CHARS);
+	}
+	const excerpt = makeMarkdownExcerpt(markdown).trim();
+	if (excerpt) {
+		return truncateText(excerpt, MAX_AGENT_NOTE_TITLE_CHARS);
+	}
+	return "AI笔记";
+}
+
+function truncateText(value: string, maxChars: number): string {
+	const chars = Array.from(value);
+	if (chars.length <= maxChars) {
+		return value;
+	}
+	return chars.slice(0, maxChars).join("");
+}
+
+function extractJsonObject(value: string): string {
+	const trimmed = value.trim();
+	if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+		return trimmed;
+	}
+	const start = trimmed.indexOf("{");
+	const end = trimmed.lastIndexOf("}");
+	if (start === -1 || end === -1 || end <= start) {
+		return "";
+	}
+	return trimmed.slice(start, end + 1);
 }
 
 async function summarizeChatContent(env: EnvWithBindings, content: string): Promise<string> {
@@ -1543,6 +2037,13 @@ function normalizeText(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
+function normalizeAgentNoteDecision(value: unknown): "confirm" | "dismiss" | "" {
+	if (value === "confirm" || value === "dismiss") {
+		return value;
+	}
+	return "";
+}
+
 function normalizeEmail(value: unknown): string {
 	return normalizeText(value).trim().toLowerCase();
 }
@@ -1647,6 +2148,7 @@ function corsHeaders(request: Request): HeadersInit {
 		"Access-Control-Allow-Origin": origin || "*",
 		"Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 		"Access-Control-Allow-Headers": "Content-Type, Authorization, X-File-Name, X-File-Size",
+		"Access-Control-Expose-Headers": `${AGENT_ACTION_HEADER}, ${AGENT_MESSAGE_ID_HEADER}, ${AGENT_NOTE_ID_HEADER}`,
 		"Access-Control-Allow-Credentials": "true",
 		"Vary": "Origin",
 	};

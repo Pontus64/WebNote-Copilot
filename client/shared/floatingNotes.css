@@ -363,6 +363,48 @@ svg {
 	color: #4f46e5;
 }
 
+.ai-message-actions.agent-confirm {
+	transition:
+		opacity 0.18s ease,
+		transform 0.18s ease;
+}
+
+.ai-message-actions.agent-confirm.resolving {
+	opacity: 0;
+	transform: translateY(-2px);
+}
+
+.ai-message-actions .agent-confirm-primary {
+	background: #111827;
+	color: #ffffff;
+}
+
+.ai-message-actions .agent-confirm-primary:hover {
+	background: #0f172a;
+	color: #ffffff;
+}
+
+.ai-message-actions .agent-confirm-secondary {
+	border: 1px solid #e5e7eb;
+	background: #ffffff;
+	color: #4b5563;
+}
+
+.ai-message-actions .agent-confirm-secondary:hover {
+	background: #f9fafb;
+	color: #111827;
+}
+
+.ai-message-actions .agent-spinner {
+	animation: aiSpin 0.8s linear infinite;
+}
+
+@keyframes aiSpin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 .ai-selection-toolbar {
 	position: fixed;
 	z-index: 30;
@@ -874,6 +916,27 @@ svg {
 
 .ai-shell.dark .ai-message-actions .summary {
 	color: #a5b4fc;
+}
+
+.ai-shell.dark .ai-message-actions .agent-confirm-primary {
+	background: #f4f4f5;
+	color: #18181b;
+}
+
+.ai-shell.dark .ai-message-actions .agent-confirm-primary:hover {
+	background: #ffffff;
+	color: #18181b;
+}
+
+.ai-shell.dark .ai-message-actions .agent-confirm-secondary {
+	border-color: rgba(255, 255, 255, 0.12);
+	background: #18181b;
+	color: #d4d4d8;
+}
+
+.ai-shell.dark .ai-message-actions .agent-confirm-secondary:hover {
+	background: #27272a;
+	color: #f4f4f5;
 }
 
 .ai-shell.dark .ai-selection-toolbar {

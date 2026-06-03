@@ -393,6 +393,300 @@ describe("floating notes worker", () => {
 		expect(body.message).toBe("summary content is required");
 	});
 
+	it("asks for confirmation before creating an agent note", async () => {
+		let intentRequestCount = 0;
+		const agentMf = createMiniflare({
+			name: "y-agent-confirm-test",
+			bindings: {
+				DEEPSEEK_API_KEY: "test-key",
+				DEEPSEEK_BASE_URL: "https://deepseek.test",
+			},
+			outboundService: async (request) => {
+				intentRequestCount += 1;
+				const body = (await request.json()) as { stream?: boolean };
+				expect(new URL(request.url).origin).toBe("https://deepseek.test");
+				expect(body.stream).toBe(false);
+				return new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content: JSON.stringify({
+										action: "create_note",
+										title: "今日待做",
+										markdown: "# 今日待做\n\n- [ ] 买菜\n- [ ] 写日报",
+										reply: "已生成笔记：今日待做",
+										confidence: 0.92,
+									}),
+								},
+							},
+						],
+					}),
+					{ headers: { "Content-Type": "application/json" } }
+				);
+			},
+		});
+		await agentMf.ready;
+		const agentDb = await agentMf.getD1Database("wranglerdemo");
+		await resetDatabase(agentDb);
+
+		try {
+			const auth = await registerTestUser(agentMf, "agent-create@example.com");
+			const headers = authHeaders(auth.sessionToken);
+			const threadResponse = await agentMf.dispatchFetch("http://example.com/api/chat/threads", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ title: "Agent 创建笔记" }),
+			});
+			const thread = await readJson<{ id: string }>(threadResponse);
+			const response = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages`,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify({ content: "帮我生成一篇待做笔记" }),
+				}
+			);
+			const text = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(text).toBe("需要我帮你生成一篇「今日待做」的笔记吗？");
+			expect(response.headers.get("X-Floating-Notes-Action")).toBe("note_pending");
+			const agentMessageId = response.headers.get("X-Floating-Notes-Message-Id");
+			expect(agentMessageId).toEqual(expect.any(String));
+			expect(intentRequestCount).toBe(1);
+
+			const pendingNotesResponse = await agentMf.dispatchFetch("http://example.com/api/notes", {
+				headers,
+			});
+			await expect(pendingNotesResponse.json()).resolves.toEqual([]);
+
+			const pendingMessagesResponse = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages`,
+				{ headers }
+			);
+			const pendingMessages = await readJson<
+				Array<{ id: string; role: string; content: string; metadata: Record<string, unknown> }>
+			>(pendingMessagesResponse);
+			const assistant = pendingMessages.find((message) => message.role === "assistant");
+			expect(assistant).toEqual(
+				expect.objectContaining({
+					id: agentMessageId,
+					content: "需要我帮你生成一篇「今日待做」的笔记吗？",
+					metadata: expect.objectContaining({
+						agentAction: "pending_create_note",
+						agentNoteStatus: "pending",
+						title: "今日待做",
+						markdown: "# 今日待做\n\n- [ ] 买菜\n- [ ] 写日报",
+					}),
+				})
+			);
+
+			const confirmResponse = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages/${agentMessageId}/agent-note`,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify({ decision: "confirm" }),
+				}
+			);
+			const confirmBody = await readJson<{
+				status: string;
+				note: { id: string; title: string; markdown: string };
+			}>(confirmResponse);
+			expect(confirmResponse.status).toBe(200);
+			expect(confirmResponse.headers.get("X-Floating-Notes-Action")).toBe("note_created");
+			expect(confirmBody).toEqual(
+				expect.objectContaining({
+					status: "created",
+					note: expect.objectContaining({
+						title: "今日待做",
+						markdown: "# 今日待做\n\n- [ ] 买菜\n- [ ] 写日报",
+					}),
+				})
+			);
+
+			const notesResponse = await agentMf.dispatchFetch("http://example.com/api/notes", {
+				headers,
+			});
+			const notes = await readJson<Array<{ id: string; title: string; markdown: string }>>(
+				notesResponse
+			);
+			expect(notes).toHaveLength(1);
+			expect(notes[0].id).toBe(confirmBody.note.id);
+
+			const repeatConfirmResponse = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages/${agentMessageId}/agent-note`,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify({ decision: "confirm" }),
+				}
+			);
+			const repeatConfirmBody = await readJson<{ status: string; noteId: string }>(
+				repeatConfirmResponse
+			);
+			expect(repeatConfirmBody).toEqual({
+				status: "created",
+				noteId: confirmBody.note.id,
+			});
+
+			const repeatNotesResponse = await agentMf.dispatchFetch("http://example.com/api/notes", {
+				headers,
+			});
+			const repeatNotes = await readJson<Array<{ id: string }>>(repeatNotesResponse);
+			expect(repeatNotes).toHaveLength(1);
+
+			const resolvedMessagesResponse = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages`,
+				{ headers }
+			);
+			const resolvedMessages = await readJson<
+				Array<{ id: string; role: string; metadata: Record<string, unknown> }>
+			>(resolvedMessagesResponse);
+			const resolvedAssistant = resolvedMessages.find((message) => message.id === agentMessageId);
+			expect(resolvedAssistant?.metadata).toEqual(
+				expect.objectContaining({
+					agentAction: "pending_create_note",
+					agentNoteStatus: "created",
+					noteId: confirmBody.note.id,
+					noteTitle: "今日待做",
+				})
+			);
+			expect(resolvedAssistant?.metadata.markdown).toBeUndefined();
+		} finally {
+			await agentMf.dispose();
+		}
+	});
+
+	it("dismisses an agent note confirmation without creating a note", async () => {
+		const agentMf = createMiniflare({
+			name: "y-agent-dismiss-test",
+			bindings: {
+				DEEPSEEK_API_KEY: "test-key",
+				DEEPSEEK_BASE_URL: "https://deepseek.test",
+			},
+			outboundService: async () =>
+				new Response(
+					JSON.stringify({
+						choices: [
+							{
+								message: {
+									content: JSON.stringify({
+										action: "create_note",
+										title: "周计划",
+										markdown: "# 周计划\n\n- 复盘\n- 排期",
+										reply: "已生成笔记：周计划",
+										confidence: 0.88,
+									}),
+								},
+							},
+						],
+					}),
+					{ headers: { "Content-Type": "application/json" } }
+				),
+		});
+		await agentMf.ready;
+		const agentDb = await agentMf.getD1Database("wranglerdemo");
+		await resetDatabase(agentDb);
+
+		try {
+			const auth = await registerTestUser(agentMf, "agent-dismiss@example.com");
+			const headers = authHeaders(auth.sessionToken);
+			const threadResponse = await agentMf.dispatchFetch("http://example.com/api/chat/threads", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ title: "Agent 拒绝笔记" }),
+			});
+			const thread = await readJson<{ id: string }>(threadResponse);
+			const response = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages`,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify({ content: "把这些生成一篇周计划笔记" }),
+				}
+			);
+			await response.text();
+			const agentMessageId = response.headers.get("X-Floating-Notes-Message-Id");
+			expect(agentMessageId).toEqual(expect.any(String));
+
+			const dismissResponse = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages/${agentMessageId}/agent-note`,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify({ decision: "dismiss" }),
+				}
+			);
+			await expect(dismissResponse.json()).resolves.toEqual({ status: "dismissed" });
+
+			const notesResponse = await agentMf.dispatchFetch("http://example.com/api/notes", {
+				headers,
+			});
+			await expect(notesResponse.json()).resolves.toEqual([]);
+
+			const messagesResponse = await agentMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages`,
+				{ headers }
+			);
+			const messages = await readJson<
+				Array<{ id: string; role: string; metadata: Record<string, unknown> }>
+			>(messagesResponse);
+			const assistant = messages.find((message) => message.id === agentMessageId);
+			expect(assistant?.metadata).toEqual(
+				expect.objectContaining({
+					agentAction: "pending_create_note",
+					agentNoteStatus: "dismissed",
+				})
+			);
+			expect(assistant?.metadata.markdown).toBeUndefined();
+		} finally {
+			await agentMf.dispose();
+		}
+	});
+
+	it("does not create a keyword-matched note when the intent model is unavailable", async () => {
+		const noKeyMf = createMiniflare({
+			name: "y-agent-no-key-test",
+			bindings: { DEEPSEEK_API_KEY: "" },
+		});
+		await noKeyMf.ready;
+		const noKeyDb = await noKeyMf.getD1Database("wranglerdemo");
+		await resetDatabase(noKeyDb);
+
+		try {
+			const auth = await registerTestUser(noKeyMf, "agent-no-key@example.com");
+			const headers = authHeaders(auth.sessionToken);
+			const threadResponse = await noKeyMf.dispatchFetch("http://example.com/api/chat/threads", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ title: "无 key 测试" }),
+			});
+			const thread = await readJson<{ id: string }>(threadResponse);
+			const response = await noKeyMf.dispatchFetch(
+				`http://example.com/api/chat/threads/${thread.id}/messages`,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify({ content: "帮我生成一篇待做笔记" }),
+				}
+			);
+			const text = await response.text();
+
+			expect(response.status).toBe(200);
+			expect(text).toContain("DeepSeek API key is not configured");
+			expect(response.headers.get("X-Floating-Notes-Action")).toBeNull();
+
+			const notesResponse = await noKeyMf.dispatchFetch("http://example.com/api/notes", {
+				headers,
+			});
+			await expect(notesResponse.json()).resolves.toEqual([]);
+		} finally {
+			await noKeyMf.dispose();
+		}
+	});
+
 	itWithDeepSeek("streams a real DeepSeek response", async () => {
 		const auth = await registerTestUser(mf, "deepseek@example.com");
 		const headers = authHeaders(auth.sessionToken);

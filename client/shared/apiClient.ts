@@ -27,6 +27,22 @@ export type ChatMessage = {
 	createdAt: number;
 };
 
+export type AgentNoteDecision = "confirm" | "dismiss";
+
+export type AgentNoteResult =
+	| {
+			status: "created";
+			note?: {
+				id: string;
+				title: string;
+				markdown: string;
+			};
+			noteId?: string;
+	  }
+	| {
+			status: "dismissed";
+	  };
+
 export type ApiErrorBody = {
 	message?: string;
 };
@@ -172,4 +188,20 @@ export function summarizeChatContent(apiBase: string, content: string) {
 		method: "POST",
 		body: JSON.stringify({ content }),
 	});
+}
+
+export function resolveAgentNote(
+	apiBase: string,
+	threadId: string,
+	messageId: string,
+	decision: AgentNoteDecision
+) {
+	return apiRequest<AgentNoteResult>(
+		apiBase,
+		`/api/chat/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/agent-note`,
+		{
+			method: "POST",
+			body: JSON.stringify({ decision }),
+		}
+	);
 }
