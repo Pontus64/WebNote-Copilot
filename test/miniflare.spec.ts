@@ -119,6 +119,55 @@ describe("floating notes worker", () => {
 		expect(missingResponse.status).toBe(404);
 	});
 
+	it("stores and reads per-user AI settings without leaking the key", async () => {
+		const auth = await registerTestUser(mf, "settings@example.com");
+		const headers = authHeaders(auth.sessionToken);
+
+		const initial = await mf.dispatchFetch("http://example.com/api/settings/ai", { headers });
+		expect(initial.status).toBe(200);
+		await expect(initial.json()).resolves.toEqual({ baseUrl: "", model: "", apiKeySet: false });
+
+		const saved = await mf.dispatchFetch("http://example.com/api/settings/ai", {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({
+				baseUrl: "https://proxy.example.com/",
+				model: "my-model",
+				apiKey: "sk-secret-123",
+			}),
+		});
+		const savedBody = await readJson<{ baseUrl: string; model: string; apiKeySet: boolean }>(saved);
+		expect(saved.status).toBe(200);
+		// loadUserAiSettings trims；baseUrl 保存原样(去尾斜杠在 resolve 阶段做)
+		expect(savedBody.model).toBe("my-model");
+		expect(savedBody.apiKeySet).toBe(true);
+		// 不回明文 key
+		expect(JSON.stringify(savedBody)).not.toContain("sk-secret-123");
+
+		// 不传 apiKey 时保留原有 key，只改 model
+		const keep = await mf.dispatchFetch("http://example.com/api/settings/ai", {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({ baseUrl: savedBody.baseUrl, model: "another-model" }),
+		});
+		await expect(keep.json()).resolves.toEqual(
+			expect.objectContaining({ model: "another-model", apiKeySet: true })
+		);
+
+		// clearApiKey 清除
+		const cleared = await mf.dispatchFetch("http://example.com/api/settings/ai", {
+			method: "PUT",
+			headers,
+			body: JSON.stringify({ baseUrl: "", model: "", clearApiKey: true }),
+		});
+		await expect(cleared.json()).resolves.toEqual({ baseUrl: "", model: "", apiKeySet: false });
+	});
+
+	it("requires auth for AI settings", async () => {
+		const response = await mf.dispatchFetch("http://example.com/api/settings/ai");
+		expect(response.status).toBe(401);
+	});
+
 	it("does not map legacy content into markdown", async () => {
 		const auth = await registerTestUser(mf, "legacy-content@example.com");
 		const response = await mf.dispatchFetch("http://example.com/api/notes", {
@@ -882,7 +931,7 @@ async function readJson<T>(response: JsonResponse): Promise<T> {
 function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 	return new Miniflare({
 		name: "y-test",
-		scriptPath: "dist/floating_notes/index.js",
+		scriptPath: "dist/webnote_copilot/index.js",
 		modules: true,
 		modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
 		compatibilityDate: "2026-05-29",

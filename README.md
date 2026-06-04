@@ -1,12 +1,12 @@
-# Floating Notes
+# WebNote Copilot
 
 这是一个部署在 Cloudflare Workers 上的悬浮笔记本。主站是 React 页面，后端 `/notes` API 使用 Cloudflare D1 保存笔记；嵌入脚本和油猴脚本复用同一套 React widget 代码。
 
 ## 一键部署到你自己的 Cloudflare
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YOUR-GITHUB-USERNAME/floating-notes)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Pontus64/WebNote-Copilot)
 
-> 上面链接里的 `YOUR-GITHUB-USERNAME/floating-notes` 需替换成本仓库的 GitHub 地址（一键部署按钮**只支持 GitHub / GitLab 公开仓库**，不支持 Gitee）。
+> 一键部署按钮**只支持 GitHub / GitLab 公开仓库**，不支持 Gitee。
 
 点击按钮后，Cloudflare 会自动完成：
 
@@ -25,16 +25,16 @@
 如果你不想用 GitHub（例如从 Gitee 克隆），可以用 Wrangler 手动部署：
 
 ```bash
-git clone <仓库地址>
-cd floating-notes
+git clone https://github.com/Pontus64/WebNote-Copilot.git
+cd WebNote-Copilot
 npm install
 
 # 登录 Cloudflare
 npx wrangler login
 
 # 创建你自己的 D1 和 R2，并把输出的 database_id 填进 wrangler.jsonc 顶层 d1_databases
-npx wrangler d1 create floating-notes-db
-npx wrangler r2 bucket create floating-notes-assets
+npx wrangler d1 create webnote-copilot-db
+npx wrangler r2 bucket create webnote-copilot-assets
 
 # 应用数据库迁移
 npx wrangler d1 migrations apply DB --remote

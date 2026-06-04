@@ -22,6 +22,7 @@ import {
 	PenLine,
 	Plus,
 	Send,
+	Settings,
 	Sparkles,
 	Trash2,
 	UserRound,
@@ -42,12 +43,14 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+	type AiSettings,
 	type ChatMessage,
 	type ChatThread,
 	type User,
 	createThread,
 	deleteThread,
 	generateChatTitle,
+	getAiSettings,
 	getMe,
 	login,
 	logout,
@@ -59,6 +62,7 @@ import {
 	resolveAgentNote,
 	sendChatMessage,
 	summarizeChatContent,
+	updateAiSettings,
 } from "../shared/apiClient";
 import {
 	createNote,
@@ -168,6 +172,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 		useState<readonly ThreadMessageLike[]>(EMPTY_MESSAGES);
 	const [runtimeKey, setRuntimeKey] = useState("empty");
 	const [historyOpen, setHistoryOpen] = useState(!embed && window.innerWidth >= 900);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [pendingSelection, setPendingSelection] = useState<PendingSelectionMessage | null>(null);
 	const [theme, setTheme] = useState<AiTheme>(getInitialTheme);
 	const activeThreadIdRef = useRef<string | null>(null);
@@ -567,6 +572,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 				onDeleteThread={handleDeleteThread}
 				onLogout={handleLogout}
 				onNewThread={startNewThread}
+				onOpenSettings={() => setSettingsOpen(true)}
 				onRenameThread={handleRenameThread}
 				onSelectThread={selectThread}
 			/>
@@ -574,6 +580,14 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 				className={`ai-history-scrim ${historyOpen ? "show" : ""}`}
 				onClick={() => setHistoryOpen(false)}
 			/>
+			{settingsOpen ? (
+				<AiSettingsPanel
+					apiBase={apiBase}
+					theme={theme}
+					embed={embed}
+					onClose={() => setSettingsOpen(false)}
+				/>
+			) : null}
 			<section className="ai-main" aria-label="AI chat">
 				<header className="ai-topbar">
 					<button
@@ -1167,6 +1181,7 @@ function HistoryDrawer({
 	onDeleteThread,
 	onLogout,
 	onNewThread,
+	onOpenSettings,
 	onRenameThread,
 	onSelectThread,
 }: {
@@ -1180,6 +1195,7 @@ function HistoryDrawer({
 	onDeleteThread: (threadId: string) => Promise<void>;
 	onLogout: () => Promise<void>;
 	onNewThread: () => void;
+	onOpenSettings: () => void;
 	onRenameThread: (thread: ChatThread) => Promise<void>;
 	onSelectThread: (threadId: string) => Promise<void>;
 }) {
@@ -1231,9 +1247,24 @@ function HistoryDrawer({
 					<UserRound aria-hidden="true" />
 					<span>{user.email}</span>
 				</div>
-				<button type="button" className="ai-icon-button" aria-label="退出登录" onClick={() => void onLogout()}>
-					<LogOut aria-hidden="true" />
-				</button>
+				<div className="ai-history-user-actions">
+					<button
+						type="button"
+						className="ai-icon-button"
+						aria-label="AI 设置"
+						onClick={onOpenSettings}
+					>
+						<Settings aria-hidden="true" />
+					</button>
+					<button
+						type="button"
+						className="ai-icon-button"
+						aria-label="退出登录"
+						onClick={() => void onLogout()}
+					>
+						<LogOut aria-hidden="true" />
+					</button>
+				</div>
 			</div>
 		</aside>
 	);
@@ -1320,6 +1351,163 @@ function AuthScreen({
 				<button type="submit" className="ai-auth-submit" disabled={busy}>
 					{mode === "login" ? "登录" : "注册"}
 				</button>
+			</form>
+		</div>
+	);
+}
+
+function AiSettingsPanel({
+	apiBase,
+	theme,
+	embed,
+	onClose,
+}: {
+	apiBase: string;
+	theme: AiTheme;
+	embed: boolean;
+	onClose: () => void;
+}) {
+	const [loading, setLoading] = useState(true);
+	const [baseUrl, setBaseUrl] = useState("");
+	const [model, setModel] = useState("");
+	const [apiKey, setApiKey] = useState("");
+	const [apiKeySet, setApiKeySet] = useState(false);
+	const [error, setError] = useState("");
+	const [status, setStatus] = useState("");
+	const [busy, setBusy] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		setLoading(true);
+		getAiSettings(apiBase)
+			.then((settings: AiSettings) => {
+				if (cancelled) return;
+				setBaseUrl(settings.baseUrl);
+				setModel(settings.model);
+				setApiKeySet(settings.apiKeySet);
+			})
+			.catch((err) => {
+				if (cancelled) return;
+				setError(err instanceof Error ? err.message : "加载设置失败");
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [apiBase]);
+
+	const submit = async (event: FormEvent) => {
+		event.preventDefault();
+		setBusy(true);
+		setError("");
+		setStatus("");
+		try {
+			const trimmedKey = apiKey.trim();
+			const settings = await updateAiSettings(apiBase, {
+				baseUrl: baseUrl.trim(),
+				model: model.trim(),
+				// 仅当填了新值时才提交 key，否则保留已存的。
+				...(trimmedKey ? { apiKey: trimmedKey } : {}),
+			});
+			setBaseUrl(settings.baseUrl);
+			setModel(settings.model);
+			setApiKeySet(settings.apiKeySet);
+			setApiKey("");
+			setStatus("已保存");
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "保存失败");
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const clearKey = async () => {
+		setBusy(true);
+		setError("");
+		setStatus("");
+		try {
+			const settings = await updateAiSettings(apiBase, {
+				baseUrl: baseUrl.trim(),
+				model: model.trim(),
+				clearApiKey: true,
+			});
+			setBaseUrl(settings.baseUrl);
+			setModel(settings.model);
+			setApiKeySet(settings.apiKeySet);
+			setApiKey("");
+			setStatus("已清除密钥");
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "操作失败");
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<div className={`ai-auth ai-settings ${theme} ${embed ? "embed" : ""}`} onClick={onClose}>
+			<form className="ai-auth-panel" onClick={(event) => event.stopPropagation()} onSubmit={submit}>
+				<div className="ai-auth-brand">
+					<div>
+						<Settings aria-hidden="true" />
+						<strong>AI 设置</strong>
+					</div>
+					<button type="button" className="ai-icon-button" aria-label="关闭" onClick={onClose}>
+						<X aria-hidden="true" />
+					</button>
+				</div>
+				<p className="ai-settings-hint">
+					自定义你自己的 DeepSeek（或任意 OpenAI 兼容）服务。留空则使用部署者配置的默认值。
+				</p>
+				<label className="ai-settings-label">
+					接口地址 Base URL
+					<input
+						value={baseUrl}
+						onChange={(event) => setBaseUrl(event.target.value)}
+						type="url"
+						placeholder="https://api.deepseek.com"
+						disabled={loading || busy}
+					/>
+				</label>
+				<label className="ai-settings-label">
+					模型 Model
+					<input
+						value={model}
+						onChange={(event) => setModel(event.target.value)}
+						type="text"
+						placeholder="deepseek-v4-flash"
+						disabled={loading || busy}
+					/>
+				</label>
+				<label className="ai-settings-label">
+					API Key
+					<input
+						value={apiKey}
+						onChange={(event) => setApiKey(event.target.value)}
+						type="password"
+						autoComplete="off"
+						placeholder={apiKeySet ? "已设置（留空则不修改）" : "未设置"}
+						disabled={loading || busy}
+					/>
+				</label>
+				{error ? <div className="ai-auth-error">{error}</div> : null}
+				{status ? <div className="ai-settings-status">{status}</div> : null}
+				<div className="ai-settings-actions">
+					{apiKeySet ? (
+						<button
+							type="button"
+							className="ai-settings-clear"
+							onClick={() => void clearKey()}
+							disabled={loading || busy}
+						>
+							清除密钥
+						</button>
+					) : null}
+					<button type="submit" className="ai-auth-submit" disabled={loading || busy}>
+						保存
+					</button>
+				</div>
 			</form>
 		</div>
 	);

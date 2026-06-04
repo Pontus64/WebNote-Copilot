@@ -47,6 +47,20 @@ export type ApiErrorBody = {
 	message?: string;
 };
 
+export type AiSettings = {
+	baseUrl: string;
+	model: string;
+	apiKeySet: boolean;
+};
+
+export type AiSettingsUpdate = {
+	baseUrl: string;
+	model: string;
+	// 留空表示不修改已保存的 key；clearApiKey=true 表示清除。
+	apiKey?: string;
+	clearApiKey?: boolean;
+};
+
 const SESSION_TOKEN_KEY = "floating-notes-session-token";
 
 export function getSessionToken() {
@@ -194,6 +208,17 @@ export function generateChatTitle(apiBase: string, content: string) {
 	return apiRequest<{ title: string }>(apiBase, "/api/chat/title", {
 		method: "POST",
 		body: JSON.stringify({ content }),
+	});
+}
+
+export function getAiSettings(apiBase: string) {
+	return apiRequest<AiSettings>(apiBase, "/api/settings/ai");
+}
+
+export function updateAiSettings(apiBase: string, update: AiSettingsUpdate) {
+	return apiRequest<AiSettings>(apiBase, "/api/settings/ai", {
+		method: "PUT",
+		body: JSON.stringify(update),
 	});
 }
 

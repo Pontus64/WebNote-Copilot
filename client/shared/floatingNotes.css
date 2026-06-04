@@ -879,6 +879,115 @@ svg {
 	cursor: default;
 }
 
+/* AI 设置面板：作为聊天页上层的模态浮层 */
+.ai-settings {
+	position: fixed;
+	inset: 0;
+	z-index: 60;
+	background: rgba(17, 24, 39, 0.45);
+	padding: 22px;
+}
+
+.ai-settings .ai-auth-panel {
+	background: #fff;
+	border-radius: 14px;
+	padding: 20px;
+	box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+	max-height: calc(100% - 44px);
+	overflow-y: auto;
+}
+
+.ai-settings .ai-auth-brand {
+	grid-template-columns: minmax(0, 1fr) 38px;
+	margin-bottom: 6px;
+}
+
+.ai-settings-hint {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.5;
+	color: #6b7280;
+}
+
+.ai-settings-label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 13px;
+	font-weight: 650;
+	color: #374151;
+}
+
+.ai-settings-status {
+	padding: 8px 10px;
+	border-radius: 8px;
+	background: #ecfdf5;
+	color: #047857;
+	font-size: 13px;
+}
+
+.ai-settings-actions {
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 10px;
+	margin-top: 4px;
+}
+
+.ai-settings-actions .ai-auth-submit {
+	flex: 1;
+}
+
+.ai-settings-clear {
+	height: 46px;
+	padding: 0 14px;
+	border: 1px solid #d1d5db;
+	border-radius: 8px;
+	background: transparent;
+	color: #b91c1c;
+	font-weight: 650;
+	cursor: pointer;
+}
+
+.ai-settings-clear:disabled {
+	color: #9ca3af;
+	cursor: default;
+}
+
+.ai-history-user-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+/* 深色模式 */
+.ai-settings.dark {
+	background: rgba(0, 0, 0, 0.55);
+}
+
+.ai-settings.dark .ai-auth-panel {
+	background: #1b1b1f;
+	box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+}
+
+.ai-settings.dark .ai-settings-label {
+	color: #d4d4d8;
+}
+
+.ai-settings.dark .ai-settings-hint {
+	color: #a1a1aa;
+}
+
+.ai-settings.dark .ai-settings-status {
+	background: rgba(5, 150, 105, 0.16);
+	color: #6ee7b7;
+}
+
+.ai-settings.dark .ai-settings-clear {
+	border-color: #3f3f46;
+	color: #fca5a5;
+}
+
 .ai-loading.dark,
 .ai-shell.dark,
 .ai-auth.dark {

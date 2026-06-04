@@ -1,5 +1,5 @@
 {
-  "name": "floating-notes",
+  "name": "webnote-copilot",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
     "cf-typegen": "wrangler types"
   },
   "cloudflare": {
-    "label": "Floating Notes",
+    "label": "WebNote Copilot",
     "products": [
       "Workers",
       "D1",
@@ -29,18 +29,18 @@
       "NOTE_ASSETS": {
         "description": "R2 桶，保存笔记里上传的图片/文件。一键部署时会自动创建。"
       },
+      "DEEPSEEK_BASE_URL": {
+        "required": false,
+        "description": "AI 接口地址，默认 https://api.deepseek.com 。换用其它 OpenAI 兼容服务时修改。也可部署后在 AI 聊天页按用户单独设置。"
+      },
       "DEEPSEEK_API_KEY": {
         "secret": true,
         "required": false,
-        "description": "DeepSeek API Key（去 https://platform.deepseek.com 获取）。用于 AI 聊天与自动生成笔记。留空则 AI 功能禁用，笔记功能不受影响。"
-      },
-      "DEEPSEEK_BASE_URL": {
-        "required": false,
-        "description": "AI 接口地址，默认 https://api.deepseek.com 。换用其它 OpenAI 兼容服务时修改。"
+        "description": "（可选）DeepSeek API Key，去 https://platform.deepseek.com 获取。作为全站默认；留空则可由每个用户在 AI 聊天页的设置里自行填写。都不填时 AI 功能禁用，笔记功能不受影响。"
       },
       "DEEPSEEK_MODEL": {
         "required": false,
-        "description": "AI 模型名，默认 deepseek-v4-flash 。"
+        "description": "AI 模型名，默认 deepseek-v4-flash 。也可部署后在 AI 聊天页按用户单独设置。"
       }
     }
   },

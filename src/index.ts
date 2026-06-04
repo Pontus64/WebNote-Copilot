@@ -192,6 +192,10 @@ export default {
 				return await handleChatRequest(request, env, ctx, url);
 			}
 
+			if (url.pathname.startsWith("/api/settings/")) {
+				return await handleSettingsRequest(request, env, url);
+			}
+
 			if (
 				url.pathname === "/api/notes" ||
 				url.pathname.startsWith("/api/notes/") ||
@@ -329,6 +333,71 @@ async function handleAuthRequest(
 	throw new ApiError(405, "method not allowed");
 }
 
+async function handleSettingsRequest(
+	request: Request,
+	env: EnvWithBindings,
+	url: URL
+): Promise<Response> {
+	const auth = await requireAuth(request, env);
+	const action = url.pathname.replace(/^\/api\/settings\/?/, "");
+
+	if (action === "ai" && request.method === "GET") {
+		const settings = await loadUserAiSettings(env.DB, auth.user.id);
+		return json(aiSettingsResponse(settings), 200, request);
+	}
+
+	if (action === "ai" && request.method === "PUT") {
+		const body = await readJsonBody(request);
+		const baseUrl = normalizeText(body.baseUrl).trim();
+		const model = normalizeText(body.model).trim();
+		const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+		const clearApiKey = body.clearApiKey === true;
+		const now = Date.now();
+
+		if (clearApiKey) {
+			await env.DB
+				.prepare(
+					"UPDATE auth_users SET deepseek_base_url = ?, deepseek_model = ?, deepseek_api_key = NULL, updated_at = ? WHERE id = ?"
+				)
+				.bind(baseUrl, model, now, auth.user.id)
+				.run();
+		} else if (apiKey) {
+			await env.DB
+				.prepare(
+					"UPDATE auth_users SET deepseek_base_url = ?, deepseek_model = ?, deepseek_api_key = ?, updated_at = ? WHERE id = ?"
+				)
+				.bind(baseUrl, model, apiKey, now, auth.user.id)
+				.run();
+		} else {
+			// 不传 apiKey 时保留原有 key，只更新 baseUrl / model。
+			await env.DB
+				.prepare(
+					"UPDATE auth_users SET deepseek_base_url = ?, deepseek_model = ?, updated_at = ? WHERE id = ?"
+				)
+				.bind(baseUrl, model, now, auth.user.id)
+				.run();
+		}
+
+		const settings = await loadUserAiSettings(env.DB, auth.user.id);
+		return json(aiSettingsResponse(settings), 200, request);
+	}
+
+	throw new ApiError(405, "method not allowed");
+}
+
+// 返回给前端的 AI 设置：只暴露是否已设置 key，不回明文。
+function aiSettingsResponse(settings: UserAiSettings): {
+	baseUrl: string;
+	model: string;
+	apiKeySet: boolean;
+} {
+	return {
+		baseUrl: settings.baseUrl,
+		model: settings.model,
+		apiKeySet: Boolean(settings.apiKey),
+	};
+}
+
 async function handleNotesRequest(
 	request: Request,
 	env: EnvWithBindings,
@@ -403,7 +472,8 @@ async function handleChatRequest(
 		if (!content) {
 			throw new ApiError(400, "summary content is required");
 		}
-		return json({ summary: await summarizeChatContent(env, content) }, 200, request);
+		const config = resolveDeepSeekConfig(env, await loadUserAiSettings(env.DB, auth.user.id));
+		return json({ summary: await summarizeChatContent(config, content) }, 200, request);
 	}
 
 	if (parts.length === 1 && parts[0] === "title" && request.method === "POST") {
@@ -412,7 +482,8 @@ async function handleChatRequest(
 		if (!content) {
 			throw new ApiError(400, "title content is required");
 		}
-		return json({ title: await generateChatTitle(env, content) }, 200, request);
+		const config = resolveDeepSeekConfig(env, await loadUserAiSettings(env.DB, auth.user.id));
+		return json({ title: await generateChatTitle(config, content) }, 200, request);
 	}
 
 	if (parts.length === 1 && parts[0] === "threads" && request.method === "GET") {
@@ -1016,8 +1087,9 @@ async function streamAssistantReply(
 			.bind(makeThreadTitle(userContent), now, thread.id, auth.user.id),
 	]);
 
+	const aiConfig = resolveDeepSeekConfig(env, await loadUserAiSettings(env.DB, auth.user.id));
 	const messages = await listThreadMessages(env.DB, auth.user.id, thread.id);
-	const agentAction = await routeAgentAction(env, messages, userContent);
+	const agentAction = await routeAgentAction(aiConfig, messages, userContent);
 	if (agentAction.action === "create_note") {
 		return createPendingAgentNoteResponse(
 			request,
@@ -1037,7 +1109,8 @@ async function streamAssistantReply(
 		thread.id,
 		assistantMessageId,
 		userContent,
-		writer
+		writer,
+		aiConfig
 	);
 
 	ctx.waitUntil(
@@ -1061,23 +1134,23 @@ async function streamAssistantReply(
 }
 
 async function routeAgentAction(
-	env: EnvWithBindings,
+	config: DeepSeekConfig,
 	messages: ChatMessage[],
 	userContent: string
 ): Promise<AgentAction> {
-	if (!env.DEEPSEEK_API_KEY || !shouldConsiderAgentAction(userContent)) {
+	if (!config.apiKey || !shouldConsiderAgentAction(userContent)) {
 		return { action: "chat" };
 	}
 
 	try {
-		const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
+		const upstream = await fetch(`${config.baseUrl}/chat/completions`, {
 			method: "POST",
 			headers: {
-				"Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+				"Authorization": `Bearer ${config.apiKey}`,
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+				model: config.model,
 				stream: false,
 				thinking: { type: "disabled" },
 				messages: buildAgentRouterMessages(messages, userContent),
@@ -1391,26 +1464,27 @@ async function pumpDeepSeekResponse(
 	threadId: string,
 	assistantMessageId: string,
 	userContent: string,
-	writer: WritableStreamDefaultWriter<Uint8Array>
+	writer: WritableStreamDefaultWriter<Uint8Array>,
+	config: DeepSeekConfig
 ): Promise<void> {
 	let assistantContent = "";
 	let status = "complete";
 	let metadata: Record<string, unknown> = {};
 
 	try {
-		if (!env.DEEPSEEK_API_KEY) {
+		if (!config.apiKey) {
 			throw new ApiError(503, "DeepSeek API key is not configured");
 		}
 
 		const messages = await listThreadMessages(env.DB, auth.user.id, threadId);
-		const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
+		const upstream = await fetch(`${config.baseUrl}/chat/completions`, {
 			method: "POST",
 			headers: {
-				"Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+				"Authorization": `Bearer ${config.apiKey}`,
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+				model: config.model,
 				stream: true,
 				thinking: { type: "disabled" },
 				messages: buildDeepSeekMessages(messages, userContent),
@@ -1632,19 +1706,19 @@ function extractJsonObject(value: string): string {
 	return trimmed.slice(start, end + 1);
 }
 
-async function generateChatTitle(env: EnvWithBindings, content: string): Promise<string> {
-	if (!env.DEEPSEEK_API_KEY) {
+async function generateChatTitle(config: DeepSeekConfig, content: string): Promise<string> {
+	if (!config.apiKey) {
 		throw new ApiError(503, "DeepSeek API key is not configured");
 	}
 
-	const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
+	const upstream = await fetch(`${config.baseUrl}/chat/completions`, {
 		method: "POST",
 		headers: {
-			"Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+			"Authorization": `Bearer ${config.apiKey}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
-			model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+			model: config.model,
 			stream: false,
 			thinking: { type: "disabled" },
 			messages: [
@@ -1710,19 +1784,19 @@ function stripGeneratedTitleWrapping(value: string): string {
 		.trim();
 }
 
-async function summarizeChatContent(env: EnvWithBindings, content: string): Promise<string> {
-	if (!env.DEEPSEEK_API_KEY) {
+async function summarizeChatContent(config: DeepSeekConfig, content: string): Promise<string> {
+	if (!config.apiKey) {
 		throw new ApiError(503, "DeepSeek API key is not configured");
 	}
 
-	const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
+	const upstream = await fetch(`${config.baseUrl}/chat/completions`, {
 		method: "POST",
 		headers: {
-			"Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
+			"Authorization": `Bearer ${config.apiKey}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
-			model: env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+			model: config.model,
 			stream: false,
 			thinking: { type: "disabled" },
 			messages: [
@@ -2228,8 +2302,45 @@ function clearSessionCookie(env: EnvWithBindings, request: Request): string {
 	return `${sessionCookieName(env)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
-function getDeepSeekBaseUrl(env: EnvWithBindings): string {
-	return (env.DEEPSEEK_BASE_URL || DEEPSEEK_DEFAULT_BASE_URL).replace(/\/$/, "");
+type DeepSeekConfig = {
+	apiKey: string;
+	baseUrl: string;
+	model: string;
+};
+
+type UserAiSettings = {
+	baseUrl: string;
+	model: string;
+	apiKey: string;
+};
+
+// 读取某个用户保存的 DeepSeek 设置（可能全为空字符串）。
+async function loadUserAiSettings(db: D1Database, userId: string): Promise<UserAiSettings> {
+	const row = await db
+		.prepare(
+			"SELECT deepseek_base_url, deepseek_model, deepseek_api_key FROM auth_users WHERE id = ?"
+		)
+		.bind(userId)
+		.first<{
+			deepseek_base_url: string | null;
+			deepseek_model: string | null;
+			deepseek_api_key: string | null;
+		}>();
+	return {
+		baseUrl: (row?.deepseek_base_url ?? "").trim(),
+		model: (row?.deepseek_model ?? "").trim(),
+		apiKey: (row?.deepseek_api_key ?? "").trim(),
+	};
+}
+
+// 优先级：用户设置 > Worker env > 内置默认。baseUrl 去掉结尾斜杠。
+function resolveDeepSeekConfig(env: EnvWithBindings, settings?: UserAiSettings): DeepSeekConfig {
+	const apiKey = (settings?.apiKey || env.DEEPSEEK_API_KEY || "").trim();
+	const baseUrl = (settings?.baseUrl || env.DEEPSEEK_BASE_URL || DEEPSEEK_DEFAULT_BASE_URL)
+		.trim()
+		.replace(/\/$/, "");
+	const model = (settings?.model || env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL).trim();
+	return { apiKey, baseUrl, model };
 }
 
 function corsHeaders(request: Request): HeadersInit {
