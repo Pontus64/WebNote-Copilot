@@ -29,18 +29,10 @@
       "NOTE_ASSETS": {
         "description": "R2 桶，保存笔记里上传的图片/文件。一键部署时会自动创建。"
       },
-      "DEEPSEEK_BASE_URL": {
-        "required": false,
-        "description": "AI 接口地址，默认 https://api.deepseek.com 。换用其它 OpenAI 兼容服务时修改。也可部署后在 AI 聊天页按用户单独设置。"
-      },
       "DEEPSEEK_API_KEY": {
         "secret": true,
         "required": false,
-        "description": "（可选）DeepSeek API Key，去 https://platform.deepseek.com 获取。作为全站默认；留空则可由每个用户在 AI 聊天页的设置里自行填写。都不填时 AI 功能禁用，笔记功能不受影响。"
-      },
-      "DEEPSEEK_MODEL": {
-        "required": false,
-        "description": "AI 模型名，默认 deepseek-v4-flash 。也可部署后在 AI 聊天页按用户单独设置。"
+        "description": "（可选）全站默认的模型 API Key。本应用是通用模型，正常无需在此填写——每个用户登录后在「AI 设置」里自行配置接口地址、模型和密钥即可。"
       }
     }
   },

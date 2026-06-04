@@ -1444,7 +1444,7 @@ function AiSettingsPanel({
 					</button>
 				</div>
 				<p className="ai-settings-hint">
-					自定义你自己的 DeepSeek（或任意 OpenAI 兼容）服务。留空则使用部署者配置的默认值。
+					填写任意 OpenAI 兼容服务的接口地址、模型名和 API Key（三项都需填写才能使用 AI）。
 				</p>
 				<label className="ai-settings-label">
 					接口地址 Base URL
@@ -1452,7 +1452,7 @@ function AiSettingsPanel({
 						value={baseUrl}
 						onChange={(event) => setBaseUrl(event.target.value)}
 						type="url"
-						placeholder="https://api.deepseek.com"
+						placeholder="例如 https://api.openai.com/v1"
 						disabled={loading || busy}
 					/>
 				</label>
@@ -1462,7 +1462,7 @@ function AiSettingsPanel({
 						value={model}
 						onChange={(event) => setModel(event.target.value)}
 						type="text"
-						placeholder="deepseek-v4-flash"
+						placeholder="例如 gpt-4o-mini"
 						disabled={loading || busy}
 					/>
 				</label>

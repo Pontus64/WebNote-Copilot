@@ -534,7 +534,9 @@ describe("floating notes worker", () => {
 			const body = await readJson<{ message: string }>(response);
 
 			expect(response.status).toBe(503);
-			expect(body.message).toBe("DeepSeek API key is not configured");
+			expect(body.message).toBe(
+				"请先在 AI 设置中配置模型的接口地址(URL)、模型(MODEL)和密钥(KEY)。"
+			);
 		} finally {
 			await noKeyMf.dispose();
 		}
@@ -828,7 +830,7 @@ describe("floating notes worker", () => {
 			const text = await response.text();
 
 			expect(response.status).toBe(200);
-			expect(text).toContain("DeepSeek API key is not configured");
+			expect(text).toContain("请先在 AI 设置中配置模型");
 			expect(response.headers.get("X-Floating-Notes-Action")).toBeNull();
 
 			const notesResponse = await noKeyMf.dispatchFetch("http://example.com/api/notes", {
@@ -919,6 +921,9 @@ async function readJson<T>(response: JsonResponse): Promise<T> {
 }
 
 function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
+	// 注意：bindings 要合并默认值（而不是被 ...rest 整体覆盖），
+	// 所以放在 ...rest 之后单独合并。
+	const { bindings, ...rest } = options;
 	return new Miniflare({
 		name: "y-test",
 		scriptPath: "dist/webnote_copilot/index.js",
@@ -926,13 +931,6 @@ function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 		modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
 		compatibilityDate: "2026-05-29",
 		compatibilityFlags: [...compatibilityFlags],
-		bindings: {
-			DEEPSEEK_BASE_URL: "https://api.deepseek.com",
-			DEEPSEEK_MODEL: "deepseek-v4-flash",
-			DEEPSEEK_API_KEY: deepSeekApiKey,
-			NOTE_ASSETS_PUBLIC_BASE_URL: "https://assets.example.test",
-			...(options.bindings ?? {}),
-		},
 		d1Databases: ["DB"],
 		r2Buckets: ["NOTE_ASSETS"],
 		assets: {
@@ -948,7 +946,14 @@ function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 				not_found_handling: "single-page-application",
 			},
 		},
-		...options,
+		...rest,
+		bindings: {
+			DEEPSEEK_BASE_URL: "https://api.deepseek.com",
+			DEEPSEEK_MODEL: "deepseek-v4-flash",
+			DEEPSEEK_API_KEY: deepSeekApiKey,
+			NOTE_ASSETS_PUBLIC_BASE_URL: "https://assets.example.test",
+			...(bindings ?? {}),
+		},
 	} satisfies MiniflareOptions);
 }
 

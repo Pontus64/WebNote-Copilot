@@ -12,11 +12,11 @@
 
 1. 把本仓库克隆到你自己的 GitHub 账号，并建立 Workers Builds 持续部署（之后每次 push 自动重新部署）。
 2. **自动创建** D1 数据库（binding `DB`）和 R2 桶（binding `NOTE_ASSETS`），并把新资源 ID 写回你的配置——你**不用手动建库建桶**。
-3. 在部署向导里让你填写可选的密钥：
-   - `DEEPSEEK_API_KEY`：去 <https://platform.deepseek.com> 获取。**留空也能部署**，只是 AI 聊天/自动记笔记功能禁用，普通笔记功能完全正常。
-4. 通过 `deploy` 脚本自动执行 D1 迁移（`wrangler d1 migrations apply DB --remote`）。
+3. 通过 `deploy` 脚本自动执行 D1 迁移（`wrangler d1 migrations apply DB --remote`）。
 
 部署完成后访问分配的 `https://<worker-name>.<你的子域>.workers.dev/` 即可使用。
+
+> **AI 模型是通用的、按用户配置的**：部署时无需填任何模型信息。每个用户登录后，在「AI 设置」里填写自己的接口地址(URL)、模型(MODEL)和 API Key（任意 OpenAI 兼容服务均可，如 OpenAI、OpenRouter、Kimi、本地 Ollama 等）。在配置之前，AI 聊天会提示先去设置；普通笔记功能不受影响。
 
 > 顶层 `wrangler.jsonc` 是通用模板配置，不含任何自定义域名，部署后默认走 `*.workers.dev`。如果你想绑定自己的域名，部署完成后在 Cloudflare 控制台给该 Worker 添加 Custom Domain，或在配置里加 `routes` 后重新部署。
 
@@ -39,14 +39,13 @@ npx wrangler r2 bucket create webnote-copilot-assets
 # 应用数据库迁移
 npx wrangler d1 migrations apply DB --remote
 
-# （可选）设置 AI 密钥
-npx wrangler secret put DEEPSEEK_API_KEY
-
 # 构建并部署
 npm run deploy
 ```
 
 `DB` 是 `wrangler.jsonc` 里的 D1 binding 名（迁移命令固定用 binding 名，不是数据库名）。
+
+部署后无需配置模型——每个用户登录后在应用内「AI 设置」里填自己的接口地址、模型和密钥即可。
 
 ### 自建用户：嵌入脚本 / 油猴脚本
 

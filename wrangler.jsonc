@@ -27,8 +27,8 @@
 		]
 	},
 	"vars": {
-		"DEEPSEEK_BASE_URL": "https://api.deepseek.com",
-		"DEEPSEEK_MODEL": "deepseek-v4-flash"
+		// 通用模型：不预置任何接口地址 / 模型。每个用户登录后在「AI 设置」里
+		// 自行填写接口地址(URL)、模型(MODEL)和密钥(KEY)。
 		// NOTE_ASSETS_PUBLIC_BASE_URL 留空：运行时自动回退到 Worker 自身 URL 提供 R2 资源。
 		// 如果你给 R2 桶绑定了自定义域名，可在这里设置，例如 "https://assets.example.com"。
 	},

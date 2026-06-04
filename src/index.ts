@@ -143,8 +143,8 @@ const AGENT_NOTE_TITLE_HEADER = "X-Floating-Notes-Note-Title";
 const AGENT_NOTE_ID_HEADER = "X-Floating-Notes-Note-Id";
 const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
-const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
+// 通用模型：不内置任何默认接口地址 / 模型，未配置时提示用户去设置。
+const AI_NOT_CONFIGURED_MESSAGE = "请先在 AI 设置中配置模型的接口地址(URL)、模型(MODEL)和密钥(KEY)。";
 const encoder = new TextEncoder();
 
 const ALLOWED_ASSET_MIME_TYPES = new Set([
@@ -1106,7 +1106,7 @@ async function routeAgentAction(
 	messages: ChatMessage[],
 	userContent: string
 ): Promise<AgentAction> {
-	if (!config.apiKey || !shouldConsiderAgentAction(userContent)) {
+	if (!isAiConfigured(config) || !shouldConsiderAgentAction(userContent)) {
 		return { action: "chat" };
 	}
 
@@ -1440,8 +1440,8 @@ async function pumpDeepSeekResponse(
 	let metadata: Record<string, unknown> = {};
 
 	try {
-		if (!config.apiKey) {
-			throw new ApiError(503, "DeepSeek API key is not configured");
+		if (!isAiConfigured(config)) {
+			throw new ApiError(503, AI_NOT_CONFIGURED_MESSAGE);
 		}
 
 		const messages = await listThreadMessages(env.DB, auth.user.id, threadId);
@@ -1499,7 +1499,7 @@ async function pumpDeepSeekResponse(
 		if (!assistantContent) {
 			assistantContent =
 				isApiError(error) && error.status === 503
-					? "DeepSeek API key is not configured."
+					? AI_NOT_CONFIGURED_MESSAGE
 					: "AI reply failed. Please try again later.";
 			await writer.write(encoder.encode(assistantContent));
 		}
@@ -1675,8 +1675,8 @@ function extractJsonObject(value: string): string {
 }
 
 async function generateChatTitle(config: DeepSeekConfig, content: string): Promise<string> {
-	if (!config.apiKey) {
-		throw new ApiError(503, "DeepSeek API key is not configured");
+	if (!isAiConfigured(config)) {
+		throw new ApiError(503, AI_NOT_CONFIGURED_MESSAGE);
 	}
 
 	const upstream = await fetch(`${config.baseUrl}/chat/completions`, {
@@ -1753,8 +1753,8 @@ function stripGeneratedTitleWrapping(value: string): string {
 }
 
 async function summarizeChatContent(config: DeepSeekConfig, content: string): Promise<string> {
-	if (!config.apiKey) {
-		throw new ApiError(503, "DeepSeek API key is not configured");
+	if (!isAiConfigured(config)) {
+		throw new ApiError(503, AI_NOT_CONFIGURED_MESSAGE);
 	}
 
 	const upstream = await fetch(`${config.baseUrl}/chat/completions`, {
@@ -2301,14 +2301,17 @@ async function loadUserAiSettings(db: D1Database, userId: string): Promise<UserA
 	};
 }
 
-// 优先级：用户设置 > Worker env > 内置默认。baseUrl 去掉结尾斜杠。
+// 优先级：用户设置 > Worker env(部署者可选的全站默认)。无内置默认模型。
 function resolveDeepSeekConfig(env: EnvWithBindings, settings?: UserAiSettings): DeepSeekConfig {
 	const apiKey = (settings?.apiKey || env.DEEPSEEK_API_KEY || "").trim();
-	const baseUrl = (settings?.baseUrl || env.DEEPSEEK_BASE_URL || DEEPSEEK_DEFAULT_BASE_URL)
-		.trim()
-		.replace(/\/$/, "");
-	const model = (settings?.model || env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL).trim();
+	const baseUrl = (settings?.baseUrl || env.DEEPSEEK_BASE_URL || "").trim().replace(/\/$/, "");
+	const model = (settings?.model || env.DEEPSEEK_MODEL || "").trim();
 	return { apiKey, baseUrl, model };
+}
+
+// 通用模型需要三项齐全才算配置完成。
+function isAiConfigured(config: DeepSeekConfig): boolean {
+	return Boolean(config.apiKey && config.baseUrl && config.model);
 }
 
 // 是否是 DeepSeek 端点。`thinking` 是 DeepSeek 的扩展字段，
