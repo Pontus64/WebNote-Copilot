@@ -30,7 +30,8 @@ import {
 	updateNote as updateBackendNote,
 	uploadNoteAsset as uploadBackendNoteAsset,
 } from "./notesApi";
-import { generateChatTitle } from "./apiClient";
+import { authenticate, generateChatTitle } from "./apiClient";
+import { EmbedLoginForm, type EmbedLoginMode } from "./EmbedLoginForm";
 import { buildNoteExportBundle, downloadBlob } from "./exportNote";
 import {
 	MarkdownNoteEditor,
@@ -383,6 +384,8 @@ function FloatingNotesCore(
 	const [rightGlow, setRightGlow] = useState(false);
 	const [edgeGlow, setEdgeGlow] = useState(false);
 	const [swipedNoteId, setSwipedNoteId] = useState<string | null>(null);
+	// 跨域桥接模式下，iframe 报告未登录时为 true，用于展示“登录以同步笔记”按钮。
+	const [bridgeUnauth, setBridgeUnauth] = useState(false);
 
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const drawerRef = useRef<HTMLElement | null>(null);
@@ -406,6 +409,8 @@ function FloatingNotesCore(
 	const pendingAssetUploadsRef = useRef<Set<Promise<void>>>(new Set());
 	const ensureUploadNotePromiseRef = useRef<Promise<string> | null>(null);
 	const toolbarPointerBlockUntilRef = useRef(0);
+	// iframe 未就绪时暂存待注入的 token（登录成功后注入数据 iframe 让本站即时生效）。
+	const pendingInjectTokenRef = useRef("");
 	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
 	const assetBase = apiBase.replace(/\/$/, "") || window.location.origin;
 	const moreIconSrc = `${assetBase}/more_light.svg`;
@@ -972,6 +977,36 @@ function FloatingNotesCore(
 		postThemeToChat();
 	}, [postThemeToChat]);
 
+	// 登录成功后把 token 注入数据 iframe（写入其分区 localStorage 让本站即时生效）；
+	// iframe 未就绪则暂存，待 onLoad 再注入。
+	const injectTokenToFrame = useCallback(
+		(token: string) => {
+			if (!token) {
+				return;
+			}
+			const target = chatFrameRef.current?.contentWindow;
+			if (!target) {
+				pendingInjectTokenRef.current = token;
+				return;
+			}
+			target.postMessage(
+				{ type: "floating-notes:set-token", token },
+				new URL(chatFrameSrc).origin
+			);
+		},
+		[chatFrameSrc]
+	);
+
+	// 抽屉内统一登录：宿主直接打后端登录/注册（跨域，服务端种 SameSite=None cookie 实现跨站无感），
+	// 再把返回的 token 注入数据 iframe 让本站即时生效。bridgeUnauth 会在 iframe 重新 bridge-ready{true} 时翻回 false。
+	const handleHostLogin = useCallback(
+		async (mode: EmbedLoginMode, email: string, password: string) => {
+			const res = await authenticate(apiBase, mode, email, password);
+			injectTokenToFrame(res.sessionToken);
+		},
+		[apiBase, injectTokenToFrame]
+	);
+
 	useEffect(() => {
 		const handleMessage = (event: MessageEvent) => {
 			if (
@@ -1001,12 +1036,14 @@ function FloatingNotesCore(
 
 			if (event.data.type === "floating-notes:bridge-ready") {
 				if (event.data.authenticated === true) {
+					setBridgeUnauth(false);
 					updateBridgeStatus("ready");
 					void fetchNotes();
 				} else {
+					setBridgeUnauth(true);
 					updateBridgeStatus("unauthenticated");
 					setNotes([]);
-					setNotesState("请先在 AI 聊天页登录后查看笔记");
+					setNotesState("");
 				}
 				return;
 			}
@@ -1634,6 +1671,11 @@ function FloatingNotesCore(
 									if (toolbarText) {
 										postSelectionToChat(toolbarText);
 									}
+									if (pendingInjectTokenRef.current) {
+										const token = pendingInjectTokenRef.current;
+										pendingInjectTokenRef.current = "";
+										injectTokenToFrame(token);
+									}
 								}}
 							></iframe>
 						</div>
@@ -1833,7 +1875,8 @@ function FloatingNotesCore(
 						</section>
 					</section>
 				</div>
-				{toast && drawerOpen ? (
+				{bridgeUnauth ? <EmbedLoginForm onSubmit={handleHostLogin} /> : null}
+					{toast && drawerOpen ? (
 					<div id="dst-toast" className="show in-drawer" role="status" aria-live="polite">
 						{toast}
 					</div>

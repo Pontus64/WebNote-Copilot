@@ -68,6 +68,12 @@ function setSessionToken(token: string) {
 	}
 }
 
+// 把外部(弹窗 SSO)拿到的 token 写入当前上下文的 localStorage。
+// 供数据 iframe 接收宿主注入的跨站 token 时调用。
+export function applyExternalToken(token: string) {
+	setSessionToken(token);
+}
+
 function clearSessionToken() {
 	window.localStorage.removeItem(SESSION_TOKEN_KEY);
 }
@@ -146,6 +152,22 @@ export async function logout(apiBase: string) {
 
 export function getMe(apiBase: string) {
 	return apiRequest<{ user: User }>(apiBase, "/api/auth/me");
+}
+
+// 宿主(嵌入到第三方页面的 widget)登录/注册用：直接打后端，返回 user + token，
+// 但【不写本地 localStorage】——宿主在第三方页面，不该把 token 落到宿主存储。
+// 跨站登录态靠服务端种的 SameSite=None cookie；本站即时生效靠把 token 注入数据 iframe。
+export async function authenticate(
+	apiBase: string,
+	mode: "login" | "register",
+	email: string,
+	password: string
+) {
+	const path = mode === "register" ? "/api/auth/register" : "/api/auth/login";
+	return apiRequest<AuthResponse>(apiBase, path, {
+		method: "POST",
+		body: JSON.stringify({ email, password }),
+	});
 }
 
 export function listThreads(apiBase: string) {

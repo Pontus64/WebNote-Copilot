@@ -49,6 +49,7 @@ import {
 	type ChatMessage,
 	type ChatThread,
 	type User,
+	applyExternalToken,
 	createThread,
 	deleteThread,
 	generateChatTitle,
@@ -348,6 +349,15 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 				void handleNotesBridgeRequest(event);
 				return;
 			}
+			// 宿主把弹窗 SSO 拿到的跨站 token 注入进来。只信任来自父窗口的消息。
+			if (event.data.type === "floating-notes:set-token" && event.source === window.parent) {
+				const token = typeof event.data.token === "string" ? event.data.token : "";
+				if (token) {
+					applyExternalToken(token);
+					void loadInitialState();
+				}
+				return;
+			}
 			if (event.data.type === "floating-notes:theme") {
 				if (event.data.theme === "dark" || event.data.theme === "light") {
 					setTheme(event.data.theme);
@@ -368,7 +378,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 			notifyBridgeReady(Boolean(user));
 		}
 		return () => window.removeEventListener("message", handleMessage);
-	}, [authLoading, embed, handleNotesBridgeRequest, user]);
+	}, [authLoading, embed, handleNotesBridgeRequest, loadInitialState, user]);
 
 	const createLocalThread = useCallback(
 		async (title: string, options: { resetRuntime?: boolean } = {}) => {
@@ -558,6 +568,11 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 	}
 
 	if (!user) {
+		// 嵌入模式下登录由宿主抽屉里的统一表单负责，iframe 不再渲染自己的登录页。
+		// 仍会通过 notifyBridgeReady(false) 通知宿主显示登录浮层。
+		if (embed) {
+			return <div className={`ai-loading ${theme}`} />;
+		}
 		return <AuthScreen error={authError} embed={embed} theme={theme} onSubmit={handleAuth} />;
 	}
 

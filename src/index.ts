@@ -2261,13 +2261,20 @@ function makeSessionCookie(
 	token: string,
 	maxAgeMs: number
 ): string {
-	const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-	return `${sessionCookieName(env)}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure}`;
+	// 嵌入到第三方网站时，widget 的 iframe 是跨站(第三方)上下文。
+	// SameSite=None 才能让该 cookie 在跨站 iframe 请求中携带 → 实现换站无感登录。
+	// SameSite=None 必须配 Secure；本地 http 开发回退 Lax（否则浏览器拒绝该 cookie）。
+	const isHttps = new URL(request.url).protocol === "https:";
+	const sameSite = isHttps ? "None" : "Lax";
+	const secure = isHttps ? "; Secure" : "";
+	return `${sessionCookieName(env)}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure}`;
 }
 
 function clearSessionCookie(env: EnvWithBindings, request: Request): string {
-	const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-	return `${sessionCookieName(env)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+	const isHttps = new URL(request.url).protocol === "https:";
+	const sameSite = isHttps ? "None" : "Lax";
+	const secure = isHttps ? "; Secure" : "";
+	return `${sessionCookieName(env)}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure}`;
 }
 
 type DeepSeekConfig = {

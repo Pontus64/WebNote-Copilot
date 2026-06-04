@@ -1999,6 +1999,106 @@ svg {
 	line-height: 1.7;
 }
 
+/* 抽屉内统一登录浮层：覆盖整个抽屉体(笔记页/聊天页都在它下面)。 */
+.dst-login-overlay {
+	position: absolute;
+	inset: 56px 0 0;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: var(--dst-bg-3);
+}
+
+.dst-login-form {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	width: 100%;
+	max-width: 320px;
+}
+
+.dst-login-title {
+	color: var(--dst-text-2);
+	font-size: 13px;
+	line-height: 1.6;
+	text-align: center;
+	margin-bottom: 4px;
+}
+
+.dst-login-tabs {
+	display: flex;
+	gap: 8px;
+	justify-content: center;
+}
+
+.dst-login-tabs button {
+	appearance: none;
+	border: none;
+	cursor: pointer;
+	background: transparent;
+	color: var(--dst-text-3);
+	font-size: 14px;
+	font-weight: 600;
+	padding: 4px 10px;
+	border-radius: 8px;
+}
+
+.dst-login-tabs button.active {
+	color: var(--dst-text);
+	background: var(--dst-bg);
+}
+
+.dst-login-form input {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 10px 12px;
+	border-radius: 10px;
+	border: 1px solid var(--dst-border-strong);
+	background: var(--dst-bg);
+	color: var(--dst-text);
+	font-size: 14px;
+	outline: none;
+}
+
+.dst-login-form input:focus {
+	border-color: var(--dst-accent);
+}
+
+.dst-login-error {
+	color: #ef4444;
+	font-size: 12px;
+	text-align: center;
+}
+
+.dst-login-submit {
+	appearance: none;
+	border: none;
+	cursor: pointer;
+	margin-top: 4px;
+	padding: 10px 16px;
+	border-radius: 10px;
+	font-size: 14px;
+	font-weight: 600;
+	color: #fff;
+	background: var(--dst-accent);
+	transition: opacity 0.2s ease, transform 0.1s ease;
+}
+
+.dst-login-submit:hover {
+	opacity: 0.92;
+}
+
+.dst-login-submit:active {
+	transform: scale(0.98);
+}
+
+.dst-login-submit:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
 .swipe-item {
 	position: relative;
 	width: 100%;
