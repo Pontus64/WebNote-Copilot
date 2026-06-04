@@ -27,7 +27,7 @@ describe("floating notes worker", () => {
 	beforeAll(async () => {
 		mf = createMiniflare({ name: "y-test" });
 		await mf.ready;
-		db = await mf.getD1Database("wranglerdemo");
+		db = await mf.getD1Database("DB");
 		await resetDatabase(db);
 	});
 
@@ -453,7 +453,7 @@ describe("floating notes worker", () => {
 			},
 		});
 		await titleMf.ready;
-		const titleDb = await titleMf.getD1Database("wranglerdemo");
+		const titleDb = await titleMf.getD1Database("DB");
 		await resetDatabase(titleDb);
 
 		try {
@@ -482,7 +482,7 @@ describe("floating notes worker", () => {
 			bindings: { DEEPSEEK_API_KEY: "" },
 		});
 		await noKeyMf.ready;
-		const noKeyDb = await noKeyMf.getD1Database("wranglerdemo");
+		const noKeyDb = await noKeyMf.getD1Database("DB");
 		await resetDatabase(noKeyDb);
 
 		try {
@@ -535,7 +535,7 @@ describe("floating notes worker", () => {
 			},
 		});
 		await agentMf.ready;
-		const agentDb = await agentMf.getD1Database("wranglerdemo");
+		const agentDb = await agentMf.getD1Database("DB");
 		await resetDatabase(agentDb);
 
 		try {
@@ -701,7 +701,7 @@ describe("floating notes worker", () => {
 				),
 		});
 		await agentMf.ready;
-		const agentDb = await agentMf.getD1Database("wranglerdemo");
+		const agentDb = await agentMf.getD1Database("DB");
 		await resetDatabase(agentDb);
 
 		try {
@@ -766,7 +766,7 @@ describe("floating notes worker", () => {
 			bindings: { DEEPSEEK_API_KEY: "" },
 		});
 		await noKeyMf.ready;
-		const noKeyDb = await noKeyMf.getD1Database("wranglerdemo");
+		const noKeyDb = await noKeyMf.getD1Database("DB");
 		await resetDatabase(noKeyDb);
 
 		try {
@@ -882,7 +882,7 @@ async function readJson<T>(response: JsonResponse): Promise<T> {
 function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 	return new Miniflare({
 		name: "y-test",
-		scriptPath: "dist/y/index.js",
+		scriptPath: "dist/floating_notes/index.js",
 		modules: true,
 		modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
 		compatibilityDate: "2026-05-29",
@@ -894,7 +894,7 @@ function createMiniflare(options: Partial<MiniflareOptions> = {}): Miniflare {
 			NOTE_ASSETS_PUBLIC_BASE_URL: "https://assets.example.test",
 			...(options.bindings ?? {}),
 		},
-		d1Databases: ["wranglerdemo"],
+		d1Databases: ["DB"],
 		r2Buckets: ["NOTE_ASSETS"],
 		assets: {
 			directory: "./public",

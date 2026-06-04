@@ -119,7 +119,7 @@ type AgentAction =
 	  };
 
 type EnvWithBindings = Env & {
-	wranglerdemo: D1Database;
+	DB: D1Database;
 	ASSETS?: Fetcher;
 	DEEPSEEK_API_KEY?: string;
 	DEEPSEEK_BASE_URL?: string;
@@ -230,7 +230,7 @@ async function handleAuthRequest(
 			throw new ApiError(400, "password must be at least 8 characters");
 		}
 
-		const existing = await env.wranglerdemo
+		const existing = await env.DB
 			.prepare("SELECT id FROM auth_users WHERE email = ?")
 			.bind(email)
 			.first<{ id: string }>();
@@ -248,7 +248,7 @@ async function handleAuthRequest(
 			updatedAt: now,
 		};
 
-		await env.wranglerdemo
+		await env.DB
 			.prepare(
 				`INSERT INTO auth_users (id, email, password_salt, password_hash, password_iterations, created_at, updated_at)
 				 VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -256,12 +256,12 @@ async function handleAuthRequest(
 			.bind(user.id, user.email, salt, passwordHash, PASSWORD_ITERATIONS, now, now)
 			.run();
 
-		await env.wranglerdemo
+		await env.DB
 			.prepare("UPDATE notes SET user_id = ? WHERE user_id IS NULL")
 			.bind(user.id)
 			.run();
 
-		const session = await createSession(env.wranglerdemo, user.id);
+		const session = await createSession(env.DB, user.id);
 		return json(
 			{ user, sessionToken: session.token },
 			201,
@@ -274,7 +274,7 @@ async function handleAuthRequest(
 		const body = await readJsonBody(request);
 		const email = normalizeEmail(body.email);
 		const password = normalizeText(body.password);
-		const row = await env.wranglerdemo
+		const row = await env.DB
 			.prepare(
 				`SELECT id, email, password_salt, password_hash, password_iterations, created_at, updated_at
 				 FROM auth_users
@@ -293,7 +293,7 @@ async function handleAuthRequest(
 		}
 
 		const user = userFromRow(row);
-		const session = await createSession(env.wranglerdemo, user.id);
+		const session = await createSession(env.DB, user.id);
 		return json(
 			{ user, sessionToken: session.token },
 			200,
@@ -305,7 +305,7 @@ async function handleAuthRequest(
 	if (action === "logout" && request.method === "POST") {
 		const auth = await getAuthContext(request, env, false);
 		if (auth) {
-			await env.wranglerdemo
+			await env.DB
 				.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE id = ?")
 				.bind(Date.now(), auth.sessionId)
 				.run();
@@ -353,15 +353,15 @@ async function handleNotesRequest(
 	const auth = await requireAuth(request, env);
 
 	if (isCollection && request.method === "GET") {
-		return json(await listNotes(env.wranglerdemo, auth.user.id), 200, request);
+		return json(await listNotes(env.DB, auth.user.id), 200, request);
 	}
 
 	if (isCollection && request.method === "POST") {
-		return createNote(request, env.wranglerdemo, auth.user.id);
+		return createNote(request, env.DB, auth.user.id);
 	}
 
 	if (parts.length === 2 && parts[1] === "assets" && request.method === "GET") {
-		return listNoteAssets(env.wranglerdemo, auth.user.id, noteId, request);
+		return listNoteAssets(env.DB, auth.user.id, noteId, request);
 	}
 
 	if (parts.length === 2 && parts[1] === "assets" && request.method === "POST") {
@@ -373,11 +373,11 @@ async function handleNotesRequest(
 	}
 
 	if (parts.length === 1 && noteId && request.method === "GET") {
-		return getNote(env.wranglerdemo, auth.user.id, noteId, request);
+		return getNote(env.DB, auth.user.id, noteId, request);
 	}
 
 	if (parts.length === 1 && noteId && request.method === "PUT") {
-		return updateNote(request, env.wranglerdemo, auth.user.id, noteId);
+		return updateNote(request, env.DB, auth.user.id, noteId);
 	}
 
 	if (parts.length === 1 && noteId && request.method === "DELETE") {
@@ -416,18 +416,18 @@ async function handleChatRequest(
 	}
 
 	if (parts.length === 1 && parts[0] === "threads" && request.method === "GET") {
-		return json(await listThreads(env.wranglerdemo, auth.user.id), 200, request);
+		return json(await listThreads(env.DB, auth.user.id), 200, request);
 	}
 
 	if (parts.length === 1 && parts[0] === "threads" && request.method === "POST") {
 		const body = await readJsonBody(request);
-		const thread = await createThread(env.wranglerdemo, auth.user.id, normalizeText(body.title));
+		const thread = await createThread(env.DB, auth.user.id, normalizeText(body.title));
 		return json(thread, 201, request);
 	}
 
 	if (parts[0] === "threads" && parts[1]) {
 		const threadId = parts[1];
-		const thread = await requireThread(env.wranglerdemo, auth.user.id, threadId);
+		const thread = await requireThread(env.DB, auth.user.id, threadId);
 
 		if (parts.length === 2 && request.method === "GET") {
 			return json(thread, 200, request);
@@ -436,7 +436,7 @@ async function handleChatRequest(
 		if (parts.length === 2 && request.method === "PATCH") {
 			const body = await readJsonBody(request);
 			const updated = await renameThread(
-				env.wranglerdemo,
+				env.DB,
 				auth.user.id,
 				threadId,
 				normalizeText(body.title)
@@ -445,12 +445,12 @@ async function handleChatRequest(
 		}
 
 		if (parts.length === 2 && request.method === "DELETE") {
-			await archiveThread(env.wranglerdemo, auth.user.id, threadId);
+			await archiveThread(env.DB, auth.user.id, threadId);
 			return json({ success: true }, 200, request);
 		}
 
 		if (parts.length === 3 && parts[2] === "messages" && request.method === "GET") {
-			return json(await listThreadMessages(env.wranglerdemo, auth.user.id, threadId), 200, request);
+			return json(await listThreadMessages(env.DB, auth.user.id, threadId), 200, request);
 		}
 
 		if (
@@ -644,7 +644,7 @@ async function uploadNoteAsset(
 	if (!env.NOTE_ASSETS) {
 		throw new ApiError(503, "asset storage is not configured");
 	}
-	const note = await findNote(env.wranglerdemo, userId, noteId);
+	const note = await findNote(env.DB, userId, noteId);
 	if (!note) {
 		throw new ApiError(404, "note not found");
 	}
@@ -699,7 +699,7 @@ async function uploadNoteAsset(
 	}
 
 	try {
-		await env.wranglerdemo
+		await env.DB
 			.prepare(
 				`INSERT INTO note_assets
 					(id, note_id, user_id, r2_key, public_url, file_name, mime_type, byte_size, asset_kind, created_at, updated_at)
@@ -749,7 +749,7 @@ async function deleteNoteAsset(
 	assetId: string,
 	request: Request
 ): Promise<Response> {
-	const row = await env.wranglerdemo
+	const row = await env.DB
 		.prepare(
 			`SELECT id, note_id, user_id, r2_key, public_url, file_name, mime_type, byte_size, asset_kind, created_at, updated_at, deleted_at
 			 FROM note_assets
@@ -763,7 +763,7 @@ async function deleteNoteAsset(
 	}
 
 	const now = Date.now();
-	await env.wranglerdemo
+	await env.DB
 		.prepare("UPDATE note_assets SET deleted_at = ?, updated_at = ? WHERE id = ?")
 		.bind(now, now, assetId)
 		.run();
@@ -781,7 +781,7 @@ async function serveNoteAssetContent(
 		throw new ApiError(503, "asset storage is not configured");
 	}
 
-	const row = await env.wranglerdemo
+	const row = await env.DB
 		.prepare(
 			`SELECT id, note_id, user_id, r2_key, public_url, file_name, mime_type, byte_size, asset_kind, created_at, updated_at, deleted_at
 			 FROM note_assets
@@ -816,7 +816,7 @@ async function deleteNote(
 	id: string,
 	request: Request
 ): Promise<Response> {
-	const { results } = await env.wranglerdemo
+	const { results } = await env.DB
 		.prepare(
 			`SELECT r2_key
 			 FROM note_assets
@@ -825,7 +825,7 @@ async function deleteNote(
 		.bind(id, userId)
 		.all<{ r2_key: string }>();
 
-	const result = await env.wranglerdemo
+	const result = await env.DB
 		.prepare("DELETE FROM notes WHERE id = ? AND user_id = ?")
 		.bind(id, userId)
 		.run();
@@ -999,14 +999,14 @@ async function streamAssistantReply(
 	const userMessageId = crypto.randomUUID();
 	const assistantMessageId = crypto.randomUUID();
 
-	await env.wranglerdemo.batch([
-		env.wranglerdemo
+	await env.DB.batch([
+		env.DB
 			.prepare(
 				`INSERT INTO auth_chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
 				 VALUES (?, ?, ?, 'user', ?, 'complete', '{}', ?)`
 			)
 			.bind(userMessageId, thread.id, auth.user.id, userContent, now),
-		env.wranglerdemo
+		env.DB
 			.prepare(
 				`UPDATE auth_chat_threads
 				 SET title = CASE WHEN title = '新聊天' THEN ? ELSE title END,
@@ -1016,7 +1016,7 @@ async function streamAssistantReply(
 			.bind(makeThreadTitle(userContent), now, thread.id, auth.user.id),
 	]);
 
-	const messages = await listThreadMessages(env.wranglerdemo, auth.user.id, thread.id);
+	const messages = await listThreadMessages(env.DB, auth.user.id, thread.id);
 	const agentAction = await routeAgentAction(env, messages, userContent);
 	if (agentAction.action === "create_note") {
 		return createPendingAgentNoteResponse(
@@ -1138,14 +1138,14 @@ async function createPendingAgentNoteResponse(
 
 	const reply = action.markdown;
 	const now = Date.now();
-	await env.wranglerdemo.batch([
-		env.wranglerdemo
+	await env.DB.batch([
+		env.DB
 			.prepare(
 				`INSERT INTO auth_chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
 				 VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`
 			)
 			.bind(assistantMessageId, threadId, auth.user.id, reply, "complete", JSON.stringify(metadata), now),
-		env.wranglerdemo
+		env.DB
 			.prepare(
 				`UPDATE auth_chat_threads
 				 SET updated_at = ?
@@ -1179,7 +1179,7 @@ async function resolveAgentNoteAction(
 		throw new ApiError(400, "agent note decision is required");
 	}
 
-	const row = await env.wranglerdemo
+	const row = await env.DB
 		.prepare(
 			`SELECT id, thread_id, role, content, status, metadata, created_at
 			 FROM auth_chat_messages
@@ -1219,7 +1219,7 @@ async function resolveAgentNoteAction(
 		const nextMetadata: Record<string, unknown> = { ...metadata, agentNoteStatus: "dismissed" };
 		delete nextMetadata.markdown;
 		const dismissed = await updateAgentMessageMetadataIfUnchanged(
-			env.wranglerdemo,
+			env.DB,
 			auth.user.id,
 			threadId,
 			messageId,
@@ -1227,7 +1227,7 @@ async function resolveAgentNoteAction(
 			nextMetadata
 		);
 		if (!dismissed) {
-			return respondCurrentAgentNoteState(request, env.wranglerdemo, auth.user.id, threadId, messageId);
+			return respondCurrentAgentNoteState(request, env.DB, auth.user.id, threadId, messageId);
 		}
 		return json({ status: "dismissed" }, 200, request);
 	}
@@ -1243,7 +1243,7 @@ async function resolveAgentNoteAction(
 	const title = makeAgentNoteTitle(normalizeText(metadata.title), markdown);
 	const creatingMetadata: Record<string, unknown> = { ...metadata, agentNoteStatus: "creating" };
 	const locked = await updateAgentMessageMetadataIfUnchanged(
-		env.wranglerdemo,
+		env.DB,
 		auth.user.id,
 		threadId,
 		messageId,
@@ -1251,14 +1251,14 @@ async function resolveAgentNoteAction(
 		creatingMetadata
 	);
 	if (!locked) {
-		return respondCurrentAgentNoteState(request, env.wranglerdemo, auth.user.id, threadId, messageId);
+		return respondCurrentAgentNoteState(request, env.DB, auth.user.id, threadId, messageId);
 	}
 
 	let note: Note;
 	try {
-		note = await insertNote(env.wranglerdemo, auth.user.id, { title, markdown });
+		note = await insertNote(env.DB, auth.user.id, { title, markdown });
 	} catch (error) {
-		await updateAgentMessageMetadata(env.wranglerdemo, auth.user.id, threadId, messageId, {
+		await updateAgentMessageMetadata(env.DB, auth.user.id, threadId, messageId, {
 			...metadata,
 			agentNoteStatus: "pending",
 			error: error instanceof Error ? error.message : String(error),
@@ -1272,7 +1272,7 @@ async function resolveAgentNoteAction(
 		noteTitle: note.title,
 	};
 	delete nextMetadata.markdown;
-	await updateAgentMessageMetadata(env.wranglerdemo, auth.user.id, threadId, messageId, nextMetadata);
+	await updateAgentMessageMetadata(env.DB, auth.user.id, threadId, messageId, nextMetadata);
 
 	return json(
 		{ status: "created", note },
@@ -1402,7 +1402,7 @@ async function pumpDeepSeekResponse(
 			throw new ApiError(503, "DeepSeek API key is not configured");
 		}
 
-		const messages = await listThreadMessages(env.wranglerdemo, auth.user.id, threadId);
+		const messages = await listThreadMessages(env.DB, auth.user.id, threadId);
 		const upstream = await fetch(`${getDeepSeekBaseUrl(env)}/chat/completions`, {
 			method: "POST",
 			headers: {
@@ -1463,8 +1463,8 @@ async function pumpDeepSeekResponse(
 		}
 	} finally {
 		const now = Date.now();
-		await env.wranglerdemo.batch([
-			env.wranglerdemo
+		await env.DB.batch([
+			env.DB
 				.prepare(
 				`INSERT INTO auth_chat_messages (id, thread_id, user_id, role, content, status, metadata, created_at)
 					 VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)`
@@ -1478,7 +1478,7 @@ async function pumpDeepSeekResponse(
 					JSON.stringify(metadata),
 					now
 				),
-			env.wranglerdemo
+			env.DB
 				.prepare(
 					`UPDATE auth_chat_threads
 					 SET updated_at = ?
@@ -1775,7 +1775,7 @@ async function getAuthContext(
 	}
 
 	const tokenHash = await sha256Hex(token);
-	const row = await env.wranglerdemo
+	const row = await env.DB
 		.prepare(
 			`SELECT s.id AS session_id, u.id, u.email, u.created_at, u.updated_at
 			 FROM auth_sessions s

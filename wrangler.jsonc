@@ -4,7 +4,9 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "y",
+	// 顶层配置 = 通用开源模板，供 "Deploy to Cloudflare" 一键部署和自建用户使用。
+	// 作者自己的生产配置（自定义域名 + 真实资源）放在下方的 env.production。
+	"name": "floating-notes",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-05-29",
 	"compatibility_flags": [
@@ -12,12 +14,7 @@
 		"global_fetch_strictly_public",
 		"disable_ctx_exports"
 	],
-	"routes": [
-		{
-			"pattern": "notes.edmund.xin",
-			"custom_domain": true
-		}
-	],
+	"workers_dev": true,
 	"assets": {
 		// The path to the directory containing the `index.html` file to be served at `/`
 		"directory": "./public",
@@ -31,8 +28,9 @@
 	},
 	"vars": {
 		"DEEPSEEK_BASE_URL": "https://api.deepseek.com",
-		"DEEPSEEK_MODEL": "deepseek-v4-flash",
-		"NOTE_ASSETS_PUBLIC_BASE_URL": "https://assets.notes.edmund.xin"
+		"DEEPSEEK_MODEL": "deepseek-v4-flash"
+		// NOTE_ASSETS_PUBLIC_BASE_URL 留空：运行时自动回退到 Worker 自身 URL 提供 R2 资源。
+		// 如果你给 R2 桶绑定了自定义域名，可在这里设置，例如 "https://assets.example.com"。
 	},
 	"observability": {
 		"enabled": true
@@ -40,18 +38,67 @@
 	"upload_source_maps": true,
 	"d1_databases": [
 		{
-			"binding": "wranglerdemo",
-			"database_name": "wranglerdemo",
-			"database_id": "80e3b35f-0fd8-457e-add2-530831fa5ca9",
+			"binding": "DB",
+			"database_name": "floating-notes-db",
+			// 占位 ID：一键部署时 Cloudflare 会自动新建数据库并覆盖此值；
+			// CLI 手动部署时请用 `wrangler d1 create` 创建后填入自己的 ID。
+			"database_id": "00000000-0000-0000-0000-000000000000",
 			"migrations_dir": "migrations"
 		}
 	],
 	"r2_buckets": [
 		{
 			"binding": "NOTE_ASSETS",
-			"bucket_name": "y-note-assets"
+			"bucket_name": "floating-notes-assets"
 		}
-	]
+	],
+	"env": {
+		// 作者生产环境：`npm run deploy:prod`。
+		// 注意 @cloudflare/vite-plugin 在构建时用 CLOUDFLARE_ENV=production 选择本环境。
+		// 命名环境不继承顶层 vars/assets/d1/r2/routes，必须完整重新声明。
+		"production": {
+			"name": "y",
+			"routes": [
+				{
+					"pattern": "notes.edmund.xin",
+					"custom_domain": true
+				}
+			],
+			"assets": {
+				"directory": "./public",
+				"binding": "ASSETS",
+				"not_found_handling": "single-page-application",
+				"run_worker_first": [
+					"/api/*",
+					"/notes",
+					"/notes/*"
+				]
+			},
+			"vars": {
+				"DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+				"DEEPSEEK_MODEL": "deepseek-v4-flash",
+				"NOTE_ASSETS_PUBLIC_BASE_URL": "https://assets.notes.edmund.xin"
+			},
+			"observability": {
+				"enabled": true
+			},
+			"upload_source_maps": true,
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "wranglerdemo",
+					"database_id": "80e3b35f-0fd8-457e-add2-530831fa5ca9",
+					"migrations_dir": "migrations"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "NOTE_ASSETS",
+					"bucket_name": "y-note-assets"
+				}
+			]
+		}
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

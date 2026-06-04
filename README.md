@@ -2,6 +2,56 @@
 
 这是一个部署在 Cloudflare Workers 上的悬浮笔记本。主站是 React 页面，后端 `/notes` API 使用 Cloudflare D1 保存笔记；嵌入脚本和油猴脚本复用同一套 React widget 代码。
 
+## 一键部署到你自己的 Cloudflare
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YOUR-GITHUB-USERNAME/floating-notes)
+
+> 上面链接里的 `YOUR-GITHUB-USERNAME/floating-notes` 需替换成本仓库的 GitHub 地址（一键部署按钮**只支持 GitHub / GitLab 公开仓库**，不支持 Gitee）。
+
+点击按钮后，Cloudflare 会自动完成：
+
+1. 把本仓库克隆到你自己的 GitHub 账号，并建立 Workers Builds 持续部署（之后每次 push 自动重新部署）。
+2. **自动创建** D1 数据库（binding `DB`）和 R2 桶（binding `NOTE_ASSETS`），并把新资源 ID 写回你的配置——你**不用手动建库建桶**。
+3. 在部署向导里让你填写可选的密钥：
+   - `DEEPSEEK_API_KEY`：去 <https://platform.deepseek.com> 获取。**留空也能部署**，只是 AI 聊天/自动记笔记功能禁用，普通笔记功能完全正常。
+4. 通过 `deploy` 脚本自动执行 D1 迁移（`wrangler d1 migrations apply DB --remote`）。
+
+部署完成后访问分配的 `https://<worker-name>.<你的子域>.workers.dev/` 即可使用。
+
+> 顶层 `wrangler.jsonc` 是通用模板配置，不含任何自定义域名，部署后默认走 `*.workers.dev`。如果你想绑定自己的域名，部署完成后在 Cloudflare 控制台给该 Worker 添加 Custom Domain，或在配置里加 `routes` 后重新部署。
+
+### 备选：命令行 / Gitee 手动部署
+
+如果你不想用 GitHub（例如从 Gitee 克隆），可以用 Wrangler 手动部署：
+
+```bash
+git clone <仓库地址>
+cd floating-notes
+npm install
+
+# 登录 Cloudflare
+npx wrangler login
+
+# 创建你自己的 D1 和 R2，并把输出的 database_id 填进 wrangler.jsonc 顶层 d1_databases
+npx wrangler d1 create floating-notes-db
+npx wrangler r2 bucket create floating-notes-assets
+
+# 应用数据库迁移
+npx wrangler d1 migrations apply DB --remote
+
+# （可选）设置 AI 密钥
+npx wrangler secret put DEEPSEEK_API_KEY
+
+# 构建并部署
+npm run deploy
+```
+
+`DB` 是 `wrangler.jsonc` 里的 D1 binding 名（迁移命令固定用 binding 名，不是数据库名）。
+
+### 自建用户：嵌入脚本 / 油猴脚本
+
+`public/floating-notes.user.js`、`public/embed/inject-floating-notes.js` 等文件里仍写着作者实例的 `notes.edmund.xin` 地址。**主站功能不受影响**；只有当你想发布自己的网页嵌入脚本或油猴脚本时，才需要把这些 URL 换成你自己的 Worker 域名。
+
 ## 目录结构
 
 ```text
@@ -79,16 +129,16 @@ migrations/0001_create_notes.sql
 本地 D1 迁移：
 
 ```bash
-npx wrangler d1 migrations apply wranglerdemo --local
+npx wrangler d1 migrations apply DB --local
 ```
 
 线上 D1 迁移：
 
 ```bash
-npx wrangler d1 migrations apply wranglerdemo --remote
+npx wrangler d1 migrations apply DB --remote
 ```
 
-`wranglerdemo` 是 `wrangler.jsonc` 里的 D1 binding 名称。修改 D1 binding 后运行：
+`DB` 是 `wrangler.jsonc` 里的 D1 binding 名称。修改 D1 binding 后运行：
 
 ```bash
 npm run cf-typegen
@@ -118,20 +168,25 @@ public/embed/floating-notes-widget.js
 
 ## 部署主站和 API
 
-部署到 Cloudflare Workers：
+本仓库有两套部署目标：
 
-```bash
-npm run deploy
-```
+- **默认环境（通用模板）**：给一键部署和自建用户用，走 `*.workers.dev`，无自定义域名。
 
-等价于：
+  ```bash
+  npm run deploy
+  ```
 
-```bash
-npm run build
-wrangler deploy
-```
+  等价于 `npm run build` + `wrangler d1 migrations apply DB --remote` + `wrangler deploy`（部署前自动跑 D1 迁移）。
 
-部署后访问：
+- **作者生产环境（`[env.production]`）**：作者本人发布到 `notes.edmund.xin`，配置含真实自定义域名和资源 ID。
+
+  ```bash
+  npm run deploy:prod
+  ```
+
+  等价于 `CLOUDFLARE_ENV=production npm run build` + `wrangler d1 migrations apply DB --remote --env production` + `wrangler deploy`。`@cloudflare/vite-plugin` 在**构建时**通过 `CLOUDFLARE_ENV` 选择 wrangler 环境，把 `[env.production]` 配置烘焙进产物，所以最后的 `wrangler deploy` 不再需要 `--env`。
+
+作者生产部署后访问：
 
 ```text
 https://notes.edmund.xin/
@@ -302,7 +357,7 @@ npm run build
 
 ### `npm run deploy`
 
-构建并部署到 Cloudflare Workers。
+构建、跑 D1 迁移并部署到 Cloudflare Workers（默认环境，走 `*.workers.dev`）。
 
 ```bash
 npm run deploy
@@ -312,8 +367,27 @@ npm run deploy
 
 ```bash
 npm run build
+wrangler d1 migrations apply DB --remote
 wrangler deploy
 ```
+
+### `npm run deploy:prod`
+
+作者生产环境部署（`[env.production]`，发布到 `notes.edmund.xin`）。
+
+```bash
+npm run deploy:prod
+```
+
+等价于：
+
+```bash
+CLOUDFLARE_ENV=production npm run build
+wrangler d1 migrations apply DB --remote --env production
+wrangler deploy
+```
+
+`@cloudflare/vite-plugin` 在构建时按 `CLOUDFLARE_ENV` 选择 `[env.production]` 配置并烘焙进产物，因此最后的 `wrangler deploy` 不带 `--env`。
 
 ### `npm run preview`
 

@@ -1,18 +1,48 @@
 {
-  "name": "y",
+  "name": "floating-notes",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "npm run build:widget && vite build",
     "build:widget": "vite build --config vite.widget.config.mts && cp dist/widget/floating-notes-widget.js public/embed/floating-notes-widget.js && node scripts/strip-trailing-whitespace.mjs public/embed/floating-notes-widget.js",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "deploy:prod": "CLOUDFLARE_ENV=production npm run build && wrangler d1 migrations apply DB --remote --env production && wrangler deploy",
     "dev": "vite --host 127.0.0.1",
     "preview": "vite preview --host 127.0.0.1",
     "start": "npm run dev",
     "test": "npm run build && vitest",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
     "cf-typegen": "wrangler types"
+  },
+  "cloudflare": {
+    "label": "Floating Notes",
+    "products": [
+      "Workers",
+      "D1",
+      "R2"
+    ],
+    "bindings": {
+      "DB": {
+        "description": "D1 数据库，保存笔记、用户、会话和 AI 聊天记录。一键部署时会自动创建。"
+      },
+      "NOTE_ASSETS": {
+        "description": "R2 桶，保存笔记里上传的图片/文件。一键部署时会自动创建。"
+      },
+      "DEEPSEEK_API_KEY": {
+        "secret": true,
+        "required": false,
+        "description": "DeepSeek API Key（去 https://platform.deepseek.com 获取）。用于 AI 聊天与自动生成笔记。留空则 AI 功能禁用，笔记功能不受影响。"
+      },
+      "DEEPSEEK_BASE_URL": {
+        "required": false,
+        "description": "AI 接口地址，默认 https://api.deepseek.com 。换用其它 OpenAI 兼容服务时修改。"
+      },
+      "DEEPSEEK_MODEL": {
+        "required": false,
+        "description": "AI 模型名，默认 deepseek-v4-flash 。"
+      }
+    }
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.39.0",
