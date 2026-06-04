@@ -10,9 +10,8 @@
 
 点击按钮后，Cloudflare 会自动完成：
 
-1. 把本仓库克隆到你自己的 GitHub 账号，并建立 Workers Builds 持续部署（之后每次 push 自动重新部署）。
-2. **自动创建** D1 数据库（binding `DB`）和 R2 桶（binding `NOTE_ASSETS`），并把新资源 ID 写回你的配置——你**不用手动建库建桶**。
-3. 通过 `deploy` 脚本自动执行 D1 迁移（`wrangler d1 migrations apply DB --remote`）。
+1. **自动创建** D1 数据库（binding `DB`）和 R2 桶（binding `NOTE_ASSETS`），并把新资源 ID 写回你的配置——你**不用手动建库建桶**。
+2. 通过 `deploy` 脚本自动执行 D1 迁移（`wrangler d1 migrations apply DB --remote`）。
 
 部署完成后访问分配的 `https://<worker-name>.<你的子域>.workers.dev/` 即可使用。
 
