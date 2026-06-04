@@ -119,48 +119,38 @@ describe("floating notes worker", () => {
 		expect(missingResponse.status).toBe(404);
 	});
 
-	it("stores and reads per-user AI settings without leaking the key", async () => {
+	it("stores and reads per-user AI settings", async () => {
 		const auth = await registerTestUser(mf, "settings@example.com");
 		const headers = authHeaders(auth.sessionToken);
 
 		const initial = await mf.dispatchFetch("http://example.com/api/settings/ai", { headers });
 		expect(initial.status).toBe(200);
-		await expect(initial.json()).resolves.toEqual({ baseUrl: "", model: "", apiKeySet: false });
+		await expect(initial.json()).resolves.toEqual({ baseUrl: "", model: "", apiKey: "" });
 
 		const saved = await mf.dispatchFetch("http://example.com/api/settings/ai", {
 			method: "PUT",
 			headers,
 			body: JSON.stringify({
-				baseUrl: "https://proxy.example.com/",
+				baseUrl: "https://proxy.example.com",
 				model: "my-model",
 				apiKey: "sk-secret-123",
 			}),
 		});
-		const savedBody = await readJson<{ baseUrl: string; model: string; apiKeySet: boolean }>(saved);
 		expect(saved.status).toBe(200);
-		// loadUserAiSettings trims；baseUrl 保存原样(去尾斜杠在 resolve 阶段做)
-		expect(savedBody.model).toBe("my-model");
-		expect(savedBody.apiKeySet).toBe(true);
-		// 不回明文 key
-		expect(JSON.stringify(savedBody)).not.toContain("sk-secret-123");
-
-		// 不传 apiKey 时保留原有 key，只改 model
-		const keep = await mf.dispatchFetch("http://example.com/api/settings/ai", {
-			method: "PUT",
-			headers,
-			body: JSON.stringify({ baseUrl: savedBody.baseUrl, model: "another-model" }),
+		// 本人可读回自己的 key 明文（用于面板查看/编辑）
+		await expect(saved.json()).resolves.toEqual({
+			baseUrl: "https://proxy.example.com",
+			model: "my-model",
+			apiKey: "sk-secret-123",
 		});
-		await expect(keep.json()).resolves.toEqual(
-			expect.objectContaining({ model: "another-model", apiKeySet: true })
-		);
 
-		// clearApiKey 清除
+		// 三项整体覆盖：留空即清除
 		const cleared = await mf.dispatchFetch("http://example.com/api/settings/ai", {
 			method: "PUT",
 			headers,
-			body: JSON.stringify({ baseUrl: "", model: "", clearApiKey: true }),
+			body: JSON.stringify({ baseUrl: "", model: "", apiKey: "" }),
 		});
-		await expect(cleared.json()).resolves.toEqual({ baseUrl: "", model: "", apiKeySet: false });
+		await expect(cleared.json()).resolves.toEqual({ baseUrl: "", model: "", apiKey: "" });
 	});
 
 	it("requires auth for AI settings", async () => {

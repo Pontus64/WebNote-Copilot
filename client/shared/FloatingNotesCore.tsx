@@ -1597,7 +1597,7 @@ function FloatingNotesCore(
 						<header className="dst-header">
 							<div className="dst-title">
 								<span className="dst-dot"></span>
-								<span>DeepSeek 智聊</span>
+								<span>Copilot</span>
 							</div>
 							<div className="dst-actions">
 								<button type="button" className="dst-icon-btn" title="切换主题" onClick={() => setIsDark((value) => !value)}>

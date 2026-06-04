@@ -12,6 +12,8 @@ import {
 	Check,
 	ChevronLeft,
 	Copy,
+	Eye,
+	EyeOff,
 	FilePlus2,
 	LoaderCircle,
 	LogOut,
@@ -1371,7 +1373,7 @@ function AiSettingsPanel({
 	const [baseUrl, setBaseUrl] = useState("");
 	const [model, setModel] = useState("");
 	const [apiKey, setApiKey] = useState("");
-	const [apiKeySet, setApiKeySet] = useState(false);
+	const [showKey, setShowKey] = useState(false);
 	const [error, setError] = useState("");
 	const [status, setStatus] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -1384,7 +1386,7 @@ function AiSettingsPanel({
 				if (cancelled) return;
 				setBaseUrl(settings.baseUrl);
 				setModel(settings.model);
-				setApiKeySet(settings.apiKeySet);
+				setApiKey(settings.apiKey);
 			})
 			.catch((err) => {
 				if (cancelled) return;
@@ -1404,17 +1406,14 @@ function AiSettingsPanel({
 		setError("");
 		setStatus("");
 		try {
-			const trimmedKey = apiKey.trim();
 			const settings = await updateAiSettings(apiBase, {
 				baseUrl: baseUrl.trim(),
 				model: model.trim(),
-				// 仅当填了新值时才提交 key，否则保留已存的。
-				...(trimmedKey ? { apiKey: trimmedKey } : {}),
+				apiKey: apiKey.trim(),
 			});
 			setBaseUrl(settings.baseUrl);
 			setModel(settings.model);
-			setApiKeySet(settings.apiKeySet);
-			setApiKey("");
+			setApiKey(settings.apiKey);
 			setStatus("已保存");
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "保存失败");
@@ -1423,26 +1422,13 @@ function AiSettingsPanel({
 		}
 	};
 
-	const clearKey = async () => {
-		setBusy(true);
+	// 清除：把三个输入框全部清空（保存后即回退到部署者默认值）。
+	const clearFields = () => {
+		setBaseUrl("");
+		setModel("");
+		setApiKey("");
 		setError("");
 		setStatus("");
-		try {
-			const settings = await updateAiSettings(apiBase, {
-				baseUrl: baseUrl.trim(),
-				model: model.trim(),
-				clearApiKey: true,
-			});
-			setBaseUrl(settings.baseUrl);
-			setModel(settings.model);
-			setApiKeySet(settings.apiKeySet);
-			setApiKey("");
-			setStatus("已清除密钥");
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "操作失败");
-		} finally {
-			setBusy(false);
-		}
 	};
 
 	return (
@@ -1482,28 +1468,37 @@ function AiSettingsPanel({
 				</label>
 				<label className="ai-settings-label">
 					API Key
-					<input
-						value={apiKey}
-						onChange={(event) => setApiKey(event.target.value)}
-						type="password"
-						autoComplete="off"
-						placeholder={apiKeySet ? "已设置（留空则不修改）" : "未设置"}
-						disabled={loading || busy}
-					/>
+					<div className="ai-settings-key">
+						<input
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							type={showKey ? "text" : "password"}
+							autoComplete="off"
+							placeholder="sk-..."
+							disabled={loading || busy}
+						/>
+						<button
+							type="button"
+							className="ai-settings-eye"
+							aria-label={showKey ? "隐藏密钥" : "显示密钥"}
+							onClick={() => setShowKey((value) => !value)}
+							disabled={loading || busy}
+						>
+							{showKey ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+						</button>
+					</div>
 				</label>
 				{error ? <div className="ai-auth-error">{error}</div> : null}
 				{status ? <div className="ai-settings-status">{status}</div> : null}
 				<div className="ai-settings-actions">
-					{apiKeySet ? (
-						<button
-							type="button"
-							className="ai-settings-clear"
-							onClick={() => void clearKey()}
-							disabled={loading || busy}
-						>
-							清除密钥
-						</button>
-					) : null}
+					<button
+						type="button"
+						className="ai-settings-clear"
+						onClick={clearFields}
+						disabled={loading || busy}
+					>
+						清除
+					</button>
 					<button type="submit" className="ai-auth-submit" disabled={loading || busy}>
 						保存
 					</button>

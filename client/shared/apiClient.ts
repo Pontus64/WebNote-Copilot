@@ -50,16 +50,11 @@ export type ApiErrorBody = {
 export type AiSettings = {
 	baseUrl: string;
 	model: string;
-	apiKeySet: boolean;
+	apiKey: string;
 };
 
-export type AiSettingsUpdate = {
-	baseUrl: string;
-	model: string;
-	// 留空表示不修改已保存的 key；clearApiKey=true 表示清除。
-	apiKey?: string;
-	clearApiKey?: boolean;
-};
+// 三项整体覆盖：留空即清除并回退到部署者配置的默认值。
+export type AiSettingsUpdate = AiSettings;
 
 const SESSION_TOKEN_KEY = "floating-notes-session-token";
 

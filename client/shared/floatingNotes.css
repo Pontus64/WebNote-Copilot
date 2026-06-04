@@ -926,6 +926,42 @@ svg {
 	font-size: 13px;
 }
 
+.ai-settings-key {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+.ai-settings-key input {
+	flex: 1;
+	padding-right: 44px;
+}
+
+.ai-settings-eye {
+	position: absolute;
+	right: 6px;
+	width: 34px;
+	height: 34px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: #6b7280;
+	cursor: pointer;
+}
+
+.ai-settings-eye svg {
+	width: 18px;
+	height: 18px;
+}
+
+.ai-settings-eye:disabled {
+	color: #c4c4c8;
+	cursor: default;
+}
+
 .ai-settings-actions {
 	display: flex;
 	justify-content: flex-end;
@@ -986,6 +1022,10 @@ svg {
 .ai-settings.dark .ai-settings-clear {
 	border-color: #3f3f46;
 	color: #fca5a5;
+}
+
+.ai-settings.dark .ai-settings-eye {
+	color: #a1a1aa;
 }
 
 .ai-loading.dark,

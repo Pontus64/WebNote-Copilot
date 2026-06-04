@@ -342,8 +342,8 @@ async function handleSettingsRequest(
 	const action = url.pathname.replace(/^\/api\/settings\/?/, "");
 
 	if (action === "ai" && request.method === "GET") {
-		const settings = await loadUserAiSettings(env.DB, auth.user.id);
-		return json(aiSettingsResponse(settings), 200, request);
+		// 自建 BYO-key 工具：把用户自己保存的 key 原样回给本人，便于在面板里查看/编辑。
+		return json(await loadUserAiSettings(env.DB, auth.user.id), 200, request);
 	}
 
 	if (action === "ai" && request.method === "PUT") {
@@ -351,51 +351,19 @@ async function handleSettingsRequest(
 		const baseUrl = normalizeText(body.baseUrl).trim();
 		const model = normalizeText(body.model).trim();
 		const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-		const clearApiKey = body.clearApiKey === true;
-		const now = Date.now();
 
-		if (clearApiKey) {
-			await env.DB
-				.prepare(
-					"UPDATE auth_users SET deepseek_base_url = ?, deepseek_model = ?, deepseek_api_key = NULL, updated_at = ? WHERE id = ?"
-				)
-				.bind(baseUrl, model, now, auth.user.id)
-				.run();
-		} else if (apiKey) {
-			await env.DB
-				.prepare(
-					"UPDATE auth_users SET deepseek_base_url = ?, deepseek_model = ?, deepseek_api_key = ?, updated_at = ? WHERE id = ?"
-				)
-				.bind(baseUrl, model, apiKey, now, auth.user.id)
-				.run();
-		} else {
-			// 不传 apiKey 时保留原有 key，只更新 baseUrl / model。
-			await env.DB
-				.prepare(
-					"UPDATE auth_users SET deepseek_base_url = ?, deepseek_model = ?, updated_at = ? WHERE id = ?"
-				)
-				.bind(baseUrl, model, now, auth.user.id)
-				.run();
-		}
+		// 三项整体覆盖：留空即清除，回退到 Worker env 默认值。
+		await env.DB
+			.prepare(
+				"UPDATE auth_users SET deepseek_base_url = ?, deepseek_model = ?, deepseek_api_key = ?, updated_at = ? WHERE id = ?"
+			)
+			.bind(baseUrl, model, apiKey, Date.now(), auth.user.id)
+			.run();
 
-		const settings = await loadUserAiSettings(env.DB, auth.user.id);
-		return json(aiSettingsResponse(settings), 200, request);
+		return json(await loadUserAiSettings(env.DB, auth.user.id), 200, request);
 	}
 
 	throw new ApiError(405, "method not allowed");
-}
-
-// 返回给前端的 AI 设置：只暴露是否已设置 key，不回明文。
-function aiSettingsResponse(settings: UserAiSettings): {
-	baseUrl: string;
-	model: string;
-	apiKeySet: boolean;
-} {
-	return {
-		baseUrl: settings.baseUrl,
-		model: settings.model,
-		apiKeySet: Boolean(settings.apiKey),
-	};
 }
 
 async function handleNotesRequest(
@@ -1149,12 +1117,12 @@ async function routeAgentAction(
 				"Authorization": `Bearer ${config.apiKey}`,
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({
-				model: config.model,
-				stream: false,
-				thinking: { type: "disabled" },
-				messages: buildAgentRouterMessages(messages, userContent),
-			}),
+			body: JSON.stringify(
+				buildChatCompletionBody(config, {
+					stream: false,
+					messages: buildAgentRouterMessages(messages, userContent),
+				})
+			),
 		});
 
 		if (!upstream.ok) {
@@ -1483,12 +1451,12 @@ async function pumpDeepSeekResponse(
 				"Authorization": `Bearer ${config.apiKey}`,
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({
-				model: config.model,
-				stream: true,
-				thinking: { type: "disabled" },
-				messages: buildDeepSeekMessages(messages, userContent),
-			}),
+			body: JSON.stringify(
+				buildChatCompletionBody(config, {
+					stream: true,
+					messages: buildDeepSeekMessages(messages, userContent),
+				})
+			),
 		});
 
 		if (!upstream.ok || !upstream.body) {
@@ -1717,22 +1685,22 @@ async function generateChatTitle(config: DeepSeekConfig, content: string): Promi
 			"Authorization": `Bearer ${config.apiKey}`,
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({
-			model: config.model,
-			stream: false,
-			thinking: { type: "disabled" },
-			messages: [
-				{
-					role: "system",
-					content:
-						"Generate a concise note title for the user's text. Use the same language as the text. Return only the title. The title must be 30 characters or fewer. Do not use quotes, markdown, punctuation, labels, or ellipses. Do not add facts that are not in the text.",
-				},
-				{
-					role: "user",
-					content,
-				},
-			],
-		}),
+		body: JSON.stringify(
+			buildChatCompletionBody(config, {
+				stream: false,
+				messages: [
+					{
+						role: "system",
+						content:
+							"Generate a concise note title for the user's text. Use the same language as the text. Return only the title. The title must be 30 characters or fewer. Do not use quotes, markdown, punctuation, labels, or ellipses. Do not add facts that are not in the text.",
+					},
+					{
+						role: "user",
+						content,
+					},
+				],
+			})
+		),
 	});
 
 	if (!upstream.ok) {
@@ -1795,22 +1763,22 @@ async function summarizeChatContent(config: DeepSeekConfig, content: string): Pr
 			"Authorization": `Bearer ${config.apiKey}`,
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({
-			model: config.model,
-			stream: false,
-			thinking: { type: "disabled" },
-			messages: [
-				{
-					role: "system",
-					content:
-						"Summarize the user's text into concise notes in the same language. Keep key facts, decisions, and next actions. Do not add facts that are not in the text.",
-				},
-				{
-					role: "user",
-					content,
-				},
-			],
-		}),
+		body: JSON.stringify(
+			buildChatCompletionBody(config, {
+				stream: false,
+				messages: [
+					{
+						role: "system",
+						content:
+							"Summarize the user's text into concise notes in the same language. Keep key facts, decisions, and next actions. Do not add facts that are not in the text.",
+					},
+					{
+						role: "user",
+						content,
+					},
+				],
+			})
+		),
 	});
 
 	if (!upstream.ok) {
@@ -2341,6 +2309,28 @@ function resolveDeepSeekConfig(env: EnvWithBindings, settings?: UserAiSettings):
 		.replace(/\/$/, "");
 	const model = (settings?.model || env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL).trim();
 	return { apiKey, baseUrl, model };
+}
+
+// 是否是 DeepSeek 端点。`thinking` 是 DeepSeek 的扩展字段，
+// 只对 DeepSeek 发送，避免严格的 OpenAI 兼容服务因未知参数报 400。
+function isDeepSeekEndpoint(baseUrl: string): boolean {
+	return baseUrl.toLowerCase().includes("deepseek");
+}
+
+// 构造标准 OpenAI Chat Completions 请求体，兼容任意 OpenAI 兼容服务。
+function buildChatCompletionBody(
+	config: DeepSeekConfig,
+	params: { stream: boolean; messages: unknown }
+): Record<string, unknown> {
+	const body: Record<string, unknown> = {
+		model: config.model,
+		stream: params.stream,
+		messages: params.messages,
+	};
+	if (isDeepSeekEndpoint(config.baseUrl)) {
+		body.thinking = { type: "disabled" };
+	}
+	return body;
 }
 
 function corsHeaders(request: Request): HeadersInit {
