@@ -5,7 +5,7 @@ import {
 } from "../shared/FloatingNotesCore";
 import widgetCss from "../shared/floatingNotes.css?inline";
 
-const WIDGET_VERSION = "1.0.30";
+const WIDGET_VERSION = "1.0.31";
 
 type FloatingNotesOptions = {
 	apiBase?: string;

@@ -4,7 +4,7 @@
   // 它本身不画笔记 UI，只负责读取配置、加载真正的 widget 脚本，然后初始化 widget。
   const GLOBAL_CONFIG_NAME = "FloatingNotesInjectConfig";
   const WIDGET_SCRIPT_ID = "floating-notes-widget-script";
-  const WIDGET_VERSION = "1.0.30";
+  const WIDGET_VERSION = "1.0.31";
   const DEFAULT_TITLE = "笔记";
 
   function isPlainObject(value) {

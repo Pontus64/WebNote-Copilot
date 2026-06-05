@@ -49,6 +49,8 @@ import {
 	type ChatMessage,
 	type ChatThread,
 	type User,
+	SESSION_TOKEN_KEY,
+	SESSION_INVALID_EVENT,
 	applyExternalToken,
 	createThread,
 	deleteThread,
@@ -379,6 +381,28 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 		}
 		return () => window.removeEventListener("message", handleMessage);
 	}, [authLoading, embed, handleNotesBridgeRequest, loadInitialState, user]);
+
+	// 单账号 SSO 同步 + 401 自愈:
+	// - storage 事件:其它同源 iframe/标签发生登录/切号/登出时(写/清 token),本页重新对齐到同一账号。
+	// - session-invalid 事件:本上下文请求拿到 401 后回到登录态(removeItem 不会触发自身 storage)。
+	// 两者都收口到 loadInitialState();user/authLoading 变化会让上面的 effect 自动 notifyBridgeReady。
+	useEffect(() => {
+		const resync = () => {
+			void loadInitialState();
+		};
+		const handleStorage = (event: StorageEvent) => {
+			if (event.key !== SESSION_TOKEN_KEY) {
+				return;
+			}
+			resync();
+		};
+		window.addEventListener("storage", handleStorage);
+		window.addEventListener(SESSION_INVALID_EVENT, resync);
+		return () => {
+			window.removeEventListener("storage", handleStorage);
+			window.removeEventListener(SESSION_INVALID_EVENT, resync);
+		};
+	}, [loadInitialState]);
 
 	const createLocalThread = useCallback(
 		async (title: string, options: { resetRuntime?: boolean } = {}) => {

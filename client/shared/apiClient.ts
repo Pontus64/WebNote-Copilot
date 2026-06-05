@@ -56,7 +56,11 @@ export type AiSettings = {
 // 三项整体覆盖：留空即清除并回退到部署者配置的默认值。
 export type AiSettingsUpdate = AiSettings;
 
-const SESSION_TOKEN_KEY = "floating-notes-session-token";
+export const SESSION_TOKEN_KEY = "floating-notes-session-token";
+
+// 会话失效(401)时派发的全局事件名;同一上下文里 removeItem 不会触发自身的 storage 事件,
+// 故用自定义事件兜底通知当前 iframe/标签回到登录态。
+export const SESSION_INVALID_EVENT = "floating-notes:session-invalid";
 
 export function getSessionToken() {
 	return window.localStorage.getItem(SESSION_TOKEN_KEY) || "";
@@ -88,6 +92,14 @@ export async function apiRequest<T>(
 	options: RequestInit = {}
 ): Promise<T> {
 	const response = await fetchWithAuth(apiBase, path, options);
+	if (response.status === 401) {
+		// 会话失效:清掉本地 token(removeItem 会同步其它同源 iframe/标签),
+		// 并在当前上下文派发事件,让 UI 立即回到登录态,而不是卡在错误。
+		clearSessionToken();
+		if (typeof window !== "undefined") {
+			window.dispatchEvent(new Event(SESSION_INVALID_EVENT));
+		}
+	}
 	if (!response.ok) {
 		throw new Error(await readApiError(response));
 	}
