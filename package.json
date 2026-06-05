@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build:widget && vite build",
+    "build": "npm run build:widget && npm run build:extension && vite build",
     "build:widget": "vite build --config vite.widget.config.mts && cp dist/widget/floating-notes-widget.js public/embed/floating-notes-widget.js && node scripts/strip-trailing-whitespace.mjs public/embed/floating-notes-widget.js",
+    "build:extension": "node scripts/build-extension.mjs",
+    "build:icons": "node scripts/build-icons.mjs",
+    "pack:extension": "npm run build:widget && npm run build:extension && node scripts/pack-extension.mjs",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
     "deploy:prod": "CLOUDFLARE_ENV=production npm run build && wrangler d1 migrations apply DB --remote --env production && wrangler deploy",
     "dev": "vite --host 127.0.0.1",

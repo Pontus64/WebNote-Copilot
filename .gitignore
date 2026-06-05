@@ -165,3 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+# Floating Notes 浏览器扩展构建产物(由 build:extension 从 public/embed 拷入)
+extension/floating-notes-widget.js

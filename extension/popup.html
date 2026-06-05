@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>悬浮笔记</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        width: 280px;
+        margin: 0;
+        padding: 16px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 15px;
+      }
+      .domain {
+        font-weight: 600;
+        word-break: break-all;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .status {
+        margin-top: 6px;
+        opacity: 0.75;
+      }
+      .status.on {
+        color: #16a34a;
+      }
+      .status.off {
+        color: #d97706;
+      }
+      button {
+        flex: none;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        color: #fff;
+      }
+      button.enable {
+        background: #2563eb;
+      }
+      button.disable {
+        background: #d97706;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .hint {
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(127, 127, 127, 0.25);
+        opacity: 0.7;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>悬浮笔记</h1>
+    <div>当前站点:<span id="domain" class="domain">—</span></div>
+    <div id="status" class="status">读取中…</div>
+    <div class="row">
+      <span id="action-label">去除 CSP 限制</span>
+      <button id="toggle" disabled>—</button>
+    </div>
+    <div class="hint">
+      默认对所有站点去除 CSP 以便嵌入笔记面板。若某站点(如网银)需保留原有安全策略,可在此加入黑名单。
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
