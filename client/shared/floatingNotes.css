@@ -1498,12 +1498,65 @@ svg {
 	border-left: 1px solid var(--dst-border-strong);
 	box-shadow: none;
 	transform: translateX(100%);
-	transition: transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+	transition: transform 0.38s cubic-bezier(0.16, 1, 0.3, 1),
+		width 0.38s cubic-bezier(0.16, 1, 0.3, 1);
 	overflow: hidden;
 }
 
 #dst-drawer.open {
 	transform: translateX(0);
+}
+
+#dst-drawer.expanded {
+	width: 50vw;
+}
+
+.dst-expand-toggle {
+	position: absolute;
+	z-index: 5;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	background: var(--dst-bg-3);
+	transition: background 0.2s ease;
+}
+
+.dst-expand-toggle:hover {
+	background: var(--dst-bg-2);
+}
+
+.dst-expand-toggle img {
+	width: 18px;
+	height: 18px;
+	display: block;
+	filter: brightness(1.6);
+	transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.floating-notes-scope.light .dst-expand-toggle img {
+	filter: brightness(0.7);
+}
+
+/* PC: 左边缘高度中间的半隐藏圆角贴片 */
+.dst-expand-toggle--pc {
+	top: 50%;
+	left: 0;
+	transform: translateY(-50%);
+	width: 22px;
+	height: 56px;
+	border-radius: 0 10px 10px 0;
+}
+
+.dst-expand-toggle--mobile {
+	display: none;
+}
+
+/* PC 扩展态：左箭头翻转为右箭头 */
+#dst-drawer.expanded .dst-expand-toggle--pc img {
+	transform: scaleX(-1);
 }
 
 .dst-mobile-handle {
@@ -1745,7 +1798,7 @@ svg {
 	gap: 12px;
 }
 
-.dst-chat-frame-wrap {
+.dst-chat-scroll.dst-chat-frame-wrap {
 	position: relative;
 	padding: 0;
 	gap: 0;
@@ -2868,6 +2921,38 @@ svg {
 		transform: translateY(0);
 	}
 
+	#dst-drawer.expanded {
+		width: 100vw;
+		height: var(--dst-visual-viewport-height, 100dvh);
+		max-height: 100dvh;
+		border-radius: 0;
+	}
+
+	.dst-expand-toggle--pc {
+		display: none;
+	}
+
+	/* 移动端：顶部中间的半隐藏贴片 */
+	.dst-expand-toggle--mobile {
+		display: flex;
+		top: 4px;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 56px;
+		height: 20px;
+		border-radius: 0 0 10px 10px;
+	}
+
+	/* 移动端扩展态：上箭头翻转为下箭头 */
+	#dst-drawer.expanded .dst-expand-toggle--mobile img {
+		transform: scaleY(-1);
+	}
+
+	/* detail-editing 已强制全屏，隐藏冗余按钮避免两态相争 */
+	#dst-drawer.detail-editing .dst-expand-toggle--mobile {
+		display: none;
+	}
+
 	.dst-mobile-handle {
 		display: block;
 		width: 38px;
@@ -2890,6 +2975,11 @@ svg {
 		height: 50px;
 		flex-basis: 50px;
 		padding: 0 16px;
+	}
+
+	/* 移动端表头为 50px，列表顶部对齐避免 6px 缝隙 */
+	#dst-notes-list {
+		top: 50px;
 	}
 
 	.dst-chat-scroll {

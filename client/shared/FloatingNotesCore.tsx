@@ -367,6 +367,7 @@ function FloatingNotesCore(
 	const [notes, setNotes] = useState<Note[]>([]);
 	const [notesState, setNotesState] = useState("加载中...");
 	const [drawerOpen, setDrawerOpen] = useState(false);
+	const [drawerExpanded, setDrawerExpanded] = useState(false);
 	const [activePage, setActivePage] = useState<Page>("notes");
 	const [isDark, setIsDark] = useState(true);
 	const [toolbar, setToolbar] = useState<SelectionToolbar | null>(null);
@@ -414,6 +415,8 @@ function FloatingNotesCore(
 	const chatFrameSrc = `${apiBase.replace(/\/$/, "") || window.location.origin}/?embed=1`;
 	const assetBase = apiBase.replace(/\/$/, "") || window.location.origin;
 	const moreIconSrc = `${assetBase}/more_light.svg`;
+	const arrowLeftIconSrc = `${assetBase}/arrow_left_fill.svg`;
+	const arrowUpIconSrc = `${assetBase}/arrow_up_fill.svg`;
 
 	const hasUnsavedDetail =
 		detailOpen &&
@@ -946,6 +949,8 @@ function FloatingNotesCore(
 		setDetailOpen(false);
 		setSwipedNoteId(null);
 	};
+
+	const toggleExpanded = () => setDrawerExpanded((value) => !value);
 
 	const openDrawerWithText = (text: string) => {
 		open("chat");
@@ -1624,10 +1629,28 @@ function FloatingNotesCore(
 				id="dst-drawer"
 				className={`${drawerOpen ? "open" : ""} ${
 					detailOpen && detailEditing ? "detail-editing" : ""
-				}`}
+				} ${drawerExpanded ? "expanded" : ""}`}
 				aria-label="DeepSeek Typora 抽屉"
 				ref={drawerRef}
 			>
+				<button
+					type="button"
+					className="dst-expand-toggle dst-expand-toggle--pc"
+					aria-label={drawerExpanded ? "收起抽屉" : "展开抽屉"}
+					aria-expanded={drawerExpanded}
+					onClick={toggleExpanded}
+				>
+					<img src={arrowLeftIconSrc} alt="" aria-hidden="true" />
+				</button>
+				<button
+					type="button"
+					className="dst-expand-toggle dst-expand-toggle--mobile"
+					aria-label={drawerExpanded ? "收起抽屉" : "展开抽屉"}
+					aria-expanded={drawerExpanded}
+					onClick={toggleExpanded}
+				>
+					<img src={arrowUpIconSrc} alt="" aria-hidden="true" />
+				</button>
 				<div className="dst-mobile-handle"></div>
 				<div className={`dst-viewport ${activePage === "notes" ? "show-notes" : ""}`}>
 					<section className="dst-page" aria-label="DeepSeek 智聊">
