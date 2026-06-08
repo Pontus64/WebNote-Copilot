@@ -29,11 +29,15 @@ if (!existsSync(widget)) {
 // 递归收集 extension/ 下所有文件,key 用相对路径(zip 内路径)。
 function collect(dir, files) {
   for (const name of readdirSync(dir)) {
+    // 跳过 . 开头(.DS_Store 等)和 _ 开头(Chrome 加载时生成的 _metadata,且 _ 前缀
+    // 是扩展保留命名,商店会拒绝)。README 等文档也不进包。
+    if (name.startsWith(".") || name.startsWith("_") || name.endsWith(".md")) {
+      continue;
+    }
     const full = join(dir, name);
     if (statSync(full).isDirectory()) {
       collect(full, files);
-    } else if (!name.endsWith(".md")) {
-      // README 等文档不进上架包。
+    } else {
       const rel = relative(extDir, full).split("\\").join("/");
       files[rel] = new Uint8Array(readFileSync(full));
     }
@@ -50,9 +54,17 @@ const version = manifest.version || "0.0.0";
 
 const zipped = zipSync(files, { level: 9 });
 
+// 1) 带版本号的归档,放 dist/(以后上架商店 / 留存用)。
 mkdirSync(distDir, { recursive: true });
-const outPath = join(distDir, `floating-notes-extension-${version}.zip`);
-writeFileSync(outPath, zipped);
+const distOut = join(distDir, `floating-notes-extension-${version}.zip`);
+writeFileSync(distOut, zipped);
+
+// 2) 稳定文件名,放 public/,经 Cloudflare 静态资源在 /floating-notes-extension.zip 提供下载。
+//    URL 不随版本变化,/extension 安装页固定指向它。
+const publicOut = join(root, "public/floating-notes-extension.zip");
+writeFileSync(publicOut, zipped);
 
 const kb = (zipped.length / 1024).toFixed(0);
-console.log(`Packed ${Object.keys(files).length} files → ${outPath} (${kb} KB)`);
+console.log(
+  `Packed ${Object.keys(files).length} files (${kb} KB)\n  → ${distOut}\n  → ${publicOut}`
+);

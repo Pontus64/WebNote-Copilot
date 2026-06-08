@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>安装悬浮笔记浏览器扩展</title>
+    <meta
+      name="description"
+      content="下载并安装悬浮笔记浏览器扩展,在任意网页加上悬浮笔记 + AI 聊天,并解除 GitHub 等站点的内嵌限制。"
+    />
+    <style>
+      :root {
+        --blue: #2563eb;
+        --blue-600: #1d4ed8;
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --text: #1f2329;
+        --muted: #6b7280;
+        --border: rgba(0, 0, 0, 0.08);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --card: #171a21;
+          --text: #e8eaed;
+          --muted: #9aa3af;
+          --border: rgba(255, 255, 255, 0.1);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 680px;
+        margin: 0 auto;
+        padding: 48px 20px 80px;
+      }
+      .hero {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 8px;
+      }
+      .logo {
+        width: 56px;
+        height: 56px;
+        flex: none;
+      }
+      h1 {
+        font-size: 24px;
+        margin: 0;
+      }
+      .sub {
+        color: var(--muted);
+        margin: 4px 0 28px;
+        font-size: 15px;
+      }
+      .download {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--blue);
+        color: #fff;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 16px;
+        padding: 14px 24px;
+        border-radius: 12px;
+        transition: background 0.15s ease, transform 0.1s ease;
+        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.25);
+      }
+      .download:hover {
+        background: var(--blue-600);
+      }
+      .download:active {
+        transform: translateY(1px);
+      }
+      .download svg {
+        width: 20px;
+        height: 20px;
+      }
+      .filemeta {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 10px;
+      }
+      h2 {
+        font-size: 17px;
+        margin: 40px 0 16px;
+      }
+      ol.steps {
+        list-style: none;
+        counter-reset: step;
+        margin: 0;
+        padding: 0;
+      }
+      ol.steps > li {
+        counter-increment: step;
+        position: relative;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px 16px 16px 56px;
+        margin-bottom: 12px;
+      }
+      ol.steps > li::before {
+        content: counter(step);
+        position: absolute;
+        left: 16px;
+        top: 16px;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--blue);
+        color: #fff;
+        font-size: 14px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      code {
+        background: rgba(127, 127, 127, 0.16);
+        padding: 2px 7px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        user-select: all;
+      }
+      .note {
+        margin-top: 28px;
+        padding: 14px 16px;
+        border-left: 3px solid #f59e0b;
+        background: rgba(245, 158, 11, 0.08);
+        border-radius: 0 8px 8px 0;
+        font-size: 14px;
+        color: var(--text);
+      }
+      .note strong {
+        color: #b45309;
+      }
+      @media (prefers-color-scheme: dark) {
+        .note strong {
+          color: #fbbf24;
+        }
+      }
+      footer {
+        margin-top: 40px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      footer a {
+        color: var(--blue);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <svg class="logo" viewBox="0 0 100 100" aria-hidden="true">
+          <rect x="4" y="4" width="92" height="92" rx="22" fill="#2563eb" />
+          <rect x="24" y="22" width="52" height="58" rx="8" fill="#fff" />
+          <rect x="32" y="36" width="28" height="6" rx="3" fill="#3b82f6" />
+          <rect x="32" y="49" width="34" height="6" rx="3" fill="#3b82f6" />
+          <rect x="32" y="62" width="20" height="6" rx="3" fill="#3b82f6" />
+        </svg>
+        <div>
+          <h1>悬浮笔记 · 浏览器扩展</h1>
+        </div>
+      </div>
+      <p class="sub">
+        在任意网页右下角加上悬浮笔记 + AI 聊天面板,并解除 GitHub
+        等站点对内嵌面板的安全策略限制。装一次,处处可用。
+      </p>
+
+      <a class="download" href="/floating-notes-extension.zip" download>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        下载扩展(.zip)
+      </a>
+      <div class="filemeta">支持 Chrome / Edge / Brave 等 Chromium 内核浏览器</div>
+
+      <h2>安装步骤</h2>
+      <ol class="steps">
+        <li>下载上面的 <code>floating-notes-extension.zip</code>,并<strong>解压</strong>成一个文件夹。</li>
+        <li>在浏览器地址栏打开 <code>chrome://extensions</code>(Edge 用 <code>edge://extensions</code>)。</li>
+        <li>打开页面右上角的<strong>「开发者模式」</strong>开关。</li>
+        <li>点击<strong>「加载已解压的扩展程序」</strong>,选择第 1 步解压出来的文件夹。</li>
+        <li>完成 ✅ 打开任意网页,右下角会出现悬浮按钮。</li>
+      </ol>
+
+      <div class="note">
+        <strong>关于开发者模式提示:</strong>
+        Chrome 每次启动可能提示「停用开发者模式扩展」,点<strong>「保留」</strong>即可继续使用。
+        若某些站点(如网银)你希望保留其原有安全策略,点工具栏的扩展图标 →
+        「加入黑名单」即可对该站点关闭。
+      </div>
+
+      <footer>
+        遇到问题?回到 <a href="/">悬浮笔记主页</a>。
+      </footer>
+    </div>
+  </body>
+</html>

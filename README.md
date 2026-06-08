@@ -60,6 +60,8 @@ client/widget/entry.tsx             嵌入式 React widget 入口
 public/embed/floating-notes-widget.js 构建后的嵌入式 widget 文件
 public/embed/inject-floating-notes.js 普通网页一行嵌入入口
 public/floating-notes.user.js       油猴脚本安装文件
+public/extension.html               浏览器扩展自托管下载/安装指引页（/extension）
+extension/                          MV3 浏览器扩展（去 CSP + 注入 widget）
 src/index.ts                        Worker 后端入口，处理 /notes API
 migrations/                         D1 数据库迁移
 ```
@@ -150,7 +152,7 @@ npm run cf-typegen
 npm run build
 ```
 
-它会先执行 `build:widget`，生成嵌入式脚本产物，再执行主站和 Worker 构建。
+它会先执行 `build:widget` 生成嵌入式脚本产物，再 `build:extension` + `pack:extension` 产出浏览器扩展和 zip，最后执行主站和 Worker 构建。
 
 单独构建嵌入式 widget：
 
@@ -300,6 +302,65 @@ curl -s https://notes.edmund.xin/embed/inject-floating-notes.js | sed -n '1,15p'
 
 如果用户仍然看到旧版本，让用户在 Tampermonkey 里手动更新脚本，或删除旧脚本后重新打开安装地址。
 
+## 浏览器扩展（去 CSP + 注入 widget）
+
+油猴脚本在 **GitHub 等设置了严格 CSP 的站点上用不了**：宿主网站通过 HTTP 响应头下发 `frame-src` / `X-Frame-Options`，浏览器据此直接拒绝加载 `notes.edmund.xin` 的 iframe，导致笔记和 AI 聊天一起失效。CSP 是响应头，油猴脚本（运行在页面上下文、`@grant none`）改不了，**只有浏览器扩展**能用 `declarativeNetRequest` 去掉它。
+
+`extension/` 目录是一个独立的 MV3 扩展，一体化完成两件事：
+
+1. **去 CSP**：对所有站点移除 `Content-Security-Policy` / `-Report-Only` / `X-Frame-Options` 响应头（`rules.json` 静态规则），让 iframe 能在任意站点嵌入。
+2. **注入 widget**：内容脚本加载同一套 `floating-notes-widget.js` 并调用 `FloatingNotes.init(...)`，无需油猴。
+
+油猴脚本 `public/floating-notes.user.js` 仍保留，给装了 Tampermonkey 的用户用；扩展是面向「只想装一个东西、开箱即用」的用户的独立替代品。
+
+### 目录结构
+
+```text
+extension/manifest.json          MV3 清单，version 与 WIDGET_VERSION 自动同步
+extension/rules.json             静态 DNR 规则：移除 CSP / X-Frame-Options
+extension/background.js          Service worker：读黑名单，写 allow 动态规则做豁免
+extension/content-init.js        内容脚本：调用 window.FloatingNotes.init(...)
+extension/popup.html / popup.js  工具栏弹窗：把当前站点加入/移出黑名单
+extension/icons/                 工具栏与商店图标（scripts/build-icons.mjs 生成）
+extension/floating-notes-widget.js  构建产物，由 build:extension 写入（已 gitignore）
+```
+
+### 构建与打包
+
+```bash
+npm run build:widget      # 产出 public/embed/floating-notes-widget.js
+npm run build:extension   # 安全化拷贝 widget 到 extension/ 并同步 manifest 版本
+npm run pack:extension    # 打成 zip → public/ 与 dist/
+npm run build:icons       # （可选）重新生成图标 PNG
+```
+
+`npm run build` 会自动串起 `build:widget → build:extension → pack:extension`，版本号统一以 `client/widget/entry.tsx` 的 `WIDGET_VERSION` 为准自动写入 `manifest.json`，**扩展无需手动改版本**。
+
+> **关于 UTF-8 安全化**：笔记 bundle 里含 ProseMirror/Milkdown 用作哨兵值的 `U+FFFF` 等非字符码点，标准 UTF-8 合法，但 Chrome 内容脚本用更严格的 `IsStringUTF8` 校验会判为「不是 UTF-8 编码」而拒绝加载。`build:extension`（`scripts/build-extension.mjs`）在拷贝时会把这些字符转义成等价的 `\uXXXX`，运行时语义不变。源文件 `public/embed/` 不受影响（网页 `<script>` / 油猴 `@require` 用宽松解码）。
+
+### 本地加载调试
+
+完成构建后，在 Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选 `extension/` 目录。
+
+### 自托管下载分发
+
+部署后，扩展通过 Cloudflare 静态资源自托管:
+
+```text
+https://notes.edmund.xin/extension                    图文安装指引页（public/extension.html）
+https://notes.edmund.xin/floating-notes-extension.zip  扩展压缩包（稳定 URL，随构建更新）
+```
+
+`npm run deploy:prod` 即可上线。安装页里写明了「下载 → 解压 → 开发者模式加载已解压」的步骤。
+
+> 自托管的体验上限就是「开发者模式 + 加载已解压」：Google 早已封死非商店来源的 `.crx` 直装，所以做不到双击一键安装，也没有自动更新；Chrome 每次启动会提示「停用开发者模式扩展」，点「保留」即可。要「一键安装 + 自动更新」需上架 Chrome 网上应用店。
+
+### 黑名单（豁免去 CSP）
+
+默认对所有站点去 CSP。若某站点（如网银）需保留其原有安全策略，点工具栏扩展图标 →「加入黑名单」即可；该域名写入 `storage.sync`，`background.js` 随即下发 `allow` 规则对其不再改动响应头。
+
+> **权限说明**：`host_permissions: <all_urls>` + 移除 CSP 属于重权限，会削弱所有访问站点的 XSS / 点击劫持防护。上架商店时需明确用途，并引导用户对敏感站点使用黑名单。
+
 ## npm run 指令说明
 
 ### `npm run dev`
@@ -349,9 +410,37 @@ npm run build
 执行顺序：
 
 1. `npm run build:widget`
-2. `vite build`
+2. `npm run build:extension`
+3. `npm run pack:extension`
+4. `vite build`
 
-用于部署前构建主站、Worker 和嵌入式脚本。
+用于部署前构建主站、Worker、嵌入式脚本和浏览器扩展。
+
+### `npm run build:extension`
+
+把 widget 大包安全化（转义 Chrome 内容脚本不接受的非字符码点）拷进 `extension/`，并按 `WIDGET_VERSION` 同步 `extension/manifest.json` 版本。
+
+```bash
+npm run build:extension
+```
+
+需先跑 `build:widget`（依赖 `public/embed/floating-notes-widget.js`）。
+
+### `npm run pack:extension`
+
+把 `extension/` 打包成 zip，输出到 `public/floating-notes-extension.zip`（稳定 URL 供下载）和 `dist/floating-notes-extension-<version>.zip`（带版本号归档）。自动过滤 `.`/`_` 开头的文件（`.DS_Store`、Chrome 生成的 `_metadata`）。
+
+```bash
+npm run pack:extension
+```
+
+### `npm run build:icons`
+
+用 `scripts/build-icons.mjs` 重新生成扩展图标 PNG（16/48/128），纯 Node 绘制 + zlib 编码，无额外依赖。仅在需要改图标样式时运行。
+
+```bash
+npm run build:icons
+```
 
 ### `npm run deploy`
 
