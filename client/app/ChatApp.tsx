@@ -78,6 +78,7 @@ import {
 	updateNote,
 	uploadNoteAsset,
 } from "../shared/notesApi";
+import { resolvePostMessageTargetOrigin } from "../shared/postMessage";
 
 type ChatAppProps = {
 	apiBase?: string;
@@ -247,7 +248,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 						id,
 						...body,
 					},
-					event.origin || "*"
+					resolvePostMessageTargetOrigin(event.origin)
 				);
 			};
 
