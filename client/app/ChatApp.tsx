@@ -38,6 +38,7 @@ import {
 	type TouchEvent as ReactTouchEvent,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -182,6 +183,10 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 	const [pendingSelection, setPendingSelection] = useState<PendingSelectionMessage | null>(null);
 	const [theme, setTheme] = useState<AiTheme>(getInitialTheme);
 	const activeThreadIdRef = useRef<string | null>(null);
+	const initialAskHandledRef = useRef(false);
+	const pendingSelectionSerialRef = useRef(0);
+	const runtimeResetSerialRef = useRef(0);
+	const selectionDraftModeRef = useRef(false);
 
 	useEffect(() => {
 		activeThreadIdRef.current = activeThreadId;
@@ -208,6 +213,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 	);
 
 	const loadInitialState = useCallback(async () => {
+		const loadSerial = runtimeResetSerialRef.current;
 		setAuthLoading(true);
 		setAuthError("");
 		try {
@@ -215,6 +221,15 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 			setUser(me.user);
 			const nextThreads = await refreshThreads();
 			const firstThread = nextThreads[0];
+			if (loadSerial !== runtimeResetSerialRef.current) {
+				return;
+			}
+			if (selectionDraftModeRef.current) {
+				setActiveThreadId(null);
+				activeThreadIdRef.current = null;
+				setInitialMessages(EMPTY_MESSAGES);
+				return;
+			}
 			if (firstThread) {
 				setActiveThreadId(firstThread.id);
 				await loadThreadMessages(firstThread.id);
@@ -337,11 +352,51 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 		}
 	}, [user]);
 
+	const startNewThread = useCallback(() => {
+		runtimeResetSerialRef.current += 1;
+		selectionDraftModeRef.current = false;
+		setActiveThreadId(null);
+		activeThreadIdRef.current = null;
+		setInitialMessages(EMPTY_MESSAGES);
+		setRuntimeKey(`empty:${Date.now()}`);
+		setPendingSelection(null);
+		if (window.innerWidth < 900) {
+			setHistoryOpen(false);
+		}
+	}, []);
+
+	const startSelectionThread = useCallback((text: string) => {
+		const nextText = text.trim();
+		if (!nextText) {
+			return;
+		}
+		runtimeResetSerialRef.current += 1;
+		selectionDraftModeRef.current = true;
+		const selectionId = pendingSelectionSerialRef.current + 1;
+		pendingSelectionSerialRef.current = selectionId;
+		setActiveThreadId(null);
+		activeThreadIdRef.current = null;
+		setInitialMessages(EMPTY_MESSAGES);
+		setRuntimeKey(`selection:${selectionId}:${Date.now()}`);
+		const pendingSelectionMessage = { id: selectionId, text: nextText };
+		setPendingSelection(pendingSelectionMessage);
+		if (window.innerWidth < 900) {
+			setHistoryOpen(false);
+		}
+	}, []);
+
+	const clearPendingSelection = useCallback((id: number) => {
+		setPendingSelection((current) => (current?.id === id ? null : current));
+	}, []);
+
 	useEffect(() => {
-		const url = new URL(window.location.href);
-		const askText = url.searchParams.get("ask");
-		if (askText) {
-			setPendingSelection({ id: Date.now(), text: askText });
+		if (!initialAskHandledRef.current) {
+			initialAskHandledRef.current = true;
+			const url = new URL(window.location.href);
+			const askText = url.searchParams.get("ask");
+			if (askText) {
+				startSelectionThread(askText);
+			}
 		}
 
 		const handleMessage = (event: MessageEvent) => {
@@ -372,7 +427,7 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 			}
 			const text = typeof event.data.text === "string" ? event.data.text.trim() : "";
 			if (text) {
-				setPendingSelection({ id: Date.now(), text });
+				startSelectionThread(text);
 			}
 		};
 
@@ -381,7 +436,14 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 			notifyBridgeReady(Boolean(user));
 		}
 		return () => window.removeEventListener("message", handleMessage);
-	}, [authLoading, embed, handleNotesBridgeRequest, loadInitialState, user]);
+	}, [
+		authLoading,
+		embed,
+		handleNotesBridgeRequest,
+		loadInitialState,
+		startSelectionThread,
+		user,
+	]);
 
 	// 单账号 SSO 同步 + 401 自愈:
 	// - storage 事件:其它同源 iframe/标签发生登录/切号/登出时(写/清 token),本页重新对齐到同一账号。
@@ -407,6 +469,8 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 
 	const createLocalThread = useCallback(
 		async (title: string, options: { resetRuntime?: boolean } = {}) => {
+			runtimeResetSerialRef.current += 1;
+			selectionDraftModeRef.current = false;
 			const thread = await createThread(apiBase, title);
 			setActiveThreadId(thread.id);
 			activeThreadIdRef.current = thread.id;
@@ -511,6 +575,9 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 
 	const selectThread = useCallback(
 		async (threadId: string) => {
+			runtimeResetSerialRef.current += 1;
+			selectionDraftModeRef.current = false;
+			setPendingSelection(null);
 			setActiveThreadId(threadId);
 			activeThreadIdRef.current = threadId;
 			await loadThreadMessages(threadId);
@@ -521,16 +588,6 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 		[loadThreadMessages]
 	);
 
-	const startNewThread = useCallback(() => {
-		setActiveThreadId(null);
-		activeThreadIdRef.current = null;
-		setInitialMessages(EMPTY_MESSAGES);
-		setRuntimeKey(`empty:${Date.now()}`);
-		if (window.innerWidth < 900) {
-			setHistoryOpen(false);
-		}
-	}, []);
-
 	const handleDeleteThread = useCallback(
 		async (threadId: string) => {
 			await deleteThread(apiBase, threadId);
@@ -538,6 +595,9 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 			if (threadId === activeThreadIdRef.current) {
 				const nextActive = nextThreads.find((thread) => thread.id !== threadId) ?? null;
 				if (nextActive) {
+					runtimeResetSerialRef.current += 1;
+					selectionDraftModeRef.current = false;
+					setPendingSelection(null);
 					setActiveThreadId(nextActive.id);
 					activeThreadIdRef.current = nextActive.id;
 					await loadThreadMessages(nextActive.id);
@@ -659,6 +719,8 @@ export function ChatApp({ apiBase = "", embed = false }: ChatAppProps) {
 					activeThreadId={activeThreadId}
 					chatModel={chatModel}
 					initialMessages={initialMessages}
+					onPendingSelectionConsumed={clearPendingSelection}
+					onSelectionAsk={startSelectionThread}
 					pendingSelection={pendingSelection}
 				/>
 			</section>
@@ -671,12 +733,16 @@ function ChatRuntime({
 	activeThreadId,
 	chatModel,
 	initialMessages,
+	onPendingSelectionConsumed,
+	onSelectionAsk,
 	pendingSelection,
 }: {
 	apiBase: string;
 	activeThreadId: string | null;
 	chatModel: ChatModelAdapter;
 	initialMessages: readonly ThreadMessageLike[];
+	onPendingSelectionConsumed: (id: number) => void;
+	onSelectionAsk: (text: string) => void;
 	pendingSelection: PendingSelectionMessage | null;
 }) {
 	const runtime = useLocalRuntime(chatModel, { initialMessages });
@@ -686,6 +752,8 @@ function ChatRuntime({
 			<ChatThreadView
 				apiBase={apiBase}
 				activeThreadId={activeThreadId}
+				onPendingSelectionConsumed={onPendingSelectionConsumed}
+				onSelectionAsk={onSelectionAsk}
 				pendingSelection={pendingSelection}
 			/>
 		</AssistantRuntimeProvider>
@@ -695,10 +763,14 @@ function ChatRuntime({
 function ChatThreadView({
 	apiBase,
 	activeThreadId,
+	onPendingSelectionConsumed,
+	onSelectionAsk,
 	pendingSelection,
 }: {
 	apiBase: string;
 	activeThreadId: string | null;
+	onPendingSelectionConsumed: (id: number) => void;
+	onSelectionAsk: (text: string) => void;
 	pendingSelection: PendingSelectionMessage | null;
 }) {
 	const thread = useThread();
@@ -710,6 +782,7 @@ function ChatThreadView({
 	const [toast, setToast] = useState("");
 	const viewportRef = useRef<HTMLDivElement | null>(null);
 	const toolbarRef = useRef<HTMLDivElement | null>(null);
+	const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const composingRef = useRef(false);
 	const selectionTimerRef = useRef(0);
 	const toastTimerRef = useRef(0);
@@ -728,8 +801,38 @@ function ChatThreadView({
 			return;
 		}
 		setLastSelectionId(pendingSelection.id);
-		setDraft((current) => `【选中内容】${pendingSelection.text}\n\n${current}`.trimEnd());
-	}, [lastSelectionId, pendingSelection]);
+		setDraft(pendingSelection.text.trim());
+		onPendingSelectionConsumed(pendingSelection.id);
+	}, [lastSelectionId, onPendingSelectionConsumed, pendingSelection]);
+
+	const resizeComposerTextarea = useCallback(() => {
+		const textarea = composerTextareaRef.current;
+		if (!textarea) {
+			return;
+		}
+		const viewportHeight =
+			viewportRef.current?.parentElement?.clientHeight ||
+			window.visualViewport?.height ||
+			window.innerHeight;
+		const maxHeight = Math.max(46, Math.floor(viewportHeight / 3));
+		textarea.style.height = "auto";
+		const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+		textarea.style.height = `${nextHeight}px`;
+		textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+	}, []);
+
+	useLayoutEffect(() => {
+		resizeComposerTextarea();
+	}, [draft, resizeComposerTextarea]);
+
+	useEffect(() => {
+		window.addEventListener("resize", resizeComposerTextarea);
+		window.visualViewport?.addEventListener("resize", resizeComposerTextarea);
+		return () => {
+			window.removeEventListener("resize", resizeComposerTextarea);
+			window.visualViewport?.removeEventListener("resize", resizeComposerTextarea);
+		};
+	}, [resizeComposerTextarea]);
 
 	useEffect(() => {
 		return () => {
@@ -846,7 +949,7 @@ function ChatThreadView({
 			}
 
 			if (action === "ask") {
-				setDraft((current) => `【选中内容】${text}\n\n${current}`.trimEnd());
+				onSelectionAsk(text);
 				setSelectionToolbar(null);
 				return;
 			}
@@ -872,7 +975,7 @@ function ChatThreadView({
 			})();
 			setSelectionToolbar(null);
 		},
-		[apiBase, selectionText, selectionToolbar?.text, showToast]
+		[apiBase, onSelectionAsk, selectionText, selectionToolbar?.text, showToast]
 	);
 
 	const send = useCallback(() => {
@@ -928,7 +1031,6 @@ function ChatThreadView({
 				{thread.messages.length === 0 ? (
 					<div className="ai-empty">
 						<Bot aria-hidden="true" />
-						<h1>ChatGPT</h1>
 						<p>直接输入问题开始聊天。</p>
 					</div>
 				) : (
@@ -986,6 +1088,7 @@ function ChatThreadView({
 			) : null}
 			<form className="ai-composer" onSubmit={handleSubmit}>
 				<textarea
+					ref={composerTextareaRef}
 					rows={1}
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}

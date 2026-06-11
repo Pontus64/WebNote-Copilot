@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "悬浮笔记 Floating Notes",
   "description": "在任意网页右下角加上悬浮笔记 + AI 聊天;并去除宿主站 CSP 限制,让笔记面板在 GitHub 等严格站点也能正常嵌入。",
-  "version": "1.0.32",
+  "version": "1.0.34",
   "permissions": [
     "declarativeNetRequest",
     "storage",
